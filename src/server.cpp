@@ -3,7 +3,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-#include <map>
+#include <unordered_map>
 #include <utility>
 
 #include <stdio.h>
@@ -40,9 +40,9 @@ using namespace std;
 
 
 // Has the form User : (pass, login_status)
-typedef map<string, pair<string, int> > UserMap;
+typedef unordered_map<string, pair<string, int> > UserMap;
 // Has the form Command: command_id
-typedef map<string, int > CmdMap;
+typedef unordered_map<string, int > CmdMap;
 
 // Global variables
 UserMap users;
@@ -150,7 +150,7 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 	}
 	// Wrong username
 	else{
-		strcpy(send_buf,"Username not recognized: ");
+		strcpy(send_buf,"Username not recognized\n");
 		send(new_fd, send_buf, strlen(send_buf), 0);
 		return; 
 	}
@@ -159,8 +159,8 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 /* 
 * Function to parse and run command sent by client
 * ret type: int
-* ret 1: Normal exit
-* ret 0: Closed
+* ret 1: Closed
+* ret 0: Normal exit
 */
 int run_command(const int new_fd, string command, UserMap::iterator& info){
 
@@ -195,7 +195,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 					else{
 						client_login(new_fd, command, info);
 						// Returning because login function handles replies
-						return 1;
+						return 0;
 					}
 
 			// Logout
@@ -227,7 +227,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 					}
 					close(new_fd);
 					// Returning as no need to send reply
-					return 0;
+					return 1;
 			// mkdir
 			case 9: strcpy(send_buf, "calling system functions: \n");
 					break;
@@ -237,7 +237,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 
 	// Sending back reply to command
 	send(new_fd, send_buf, strlen(send_buf), 0);
-	return 1;
+	return 0;
 }
 
 void handle_client(const int new_fd){
@@ -270,7 +270,7 @@ void handle_client(const int new_fd){
 			return;
 		}
 		command[numbytes] = '\0';
-		if ((run_command(new_fd, string(command), info)) == 0){
+		if ((run_command(new_fd, string(command), info)) == 1){
 			// Returns only when connection is closed
 			return;
 		}
