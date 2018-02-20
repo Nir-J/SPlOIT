@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,8 +21,6 @@
 #include <signal.h>
 
 using namespace std;
-
-#define PORT 3490  // the port users will be connecting to
 
 #define BACKLOG 10	 // how many pending connections queue will hold
 
@@ -48,18 +47,7 @@ typedef unordered_map<string, int > CmdMap;
 UserMap users;
 CmdMap commands;
 
-/* Signal handler to wait on zombies */
-void sigchld_handler(int s)
-{
-	(void)s; // quiet unused variable warning
-
-	// waitpid() might overwrite errno, so we save and restore it:
-	int saved_errno = errno;
-
-	while(waitpid(-1, NULL, WNOHANG) > 0);
-
-	errno = saved_errno;
-}
+int PORT;
 
 /* Parses conf file and fills in global variables */
 void parse_conf_file(){
@@ -75,10 +63,32 @@ void parse_conf_file(){
 	commands.insert(pair<string, int> ("logout", 1));
 	commands.insert(pair<string, int> ("ls", 2));
 	commands.insert(pair<string, int> ("ping", 3));
-	commands.insert(pair<string, int> ("exit", 4));
+	commands.insert(pair<string, int> ("w", 4));
+	commands.insert(pair<string, int> ("whoami", 5));
+	commands.insert(pair<string, int> ("exit", 6));
 	commands.insert(pair<string, int> ("mkdir", 9));
+
+	// Port number
+	PORT = 3490;
 }
 
+/* Sends back a list of logged in users */
+// BUG: Can overflow buffer if there are a large number of users (Can be left as is)
+char * w_command(){
+
+	string list = "";
+
+	for(auto iter : users){
+
+		if (iter.second.second == 1)
+			list += (iter.first + " ");
+	}
+	list += "\n";
+
+	// Have to cast string so that it can be sent over the buffer.
+	return const_cast<char*> (list.c_str());
+
+}
 /* Handles everything related to loggin in an user */
 void client_login(const int new_fd, const string command, UserMap::iterator& info){
 
@@ -136,8 +146,16 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 		if(iss >> password && password == pass){
 			// Pointing iterator to user's entry and changing login status
 			info = users.find(username);
-			info->second.second = 1;
-			strcpy(send_buf, "Login successful\n");
+
+			// If client is logged in using another system
+			if (info->second.second == 1){
+				strcpy(send_buf, "You are already logged in using another terminal.\n");
+				info = users.end();
+			}
+			else{
+				info->second.second = 1;
+				strcpy(send_buf, "Login successful\n");
+			}
 			send(new_fd, send_buf, strlen(send_buf), 0);
 			return;
 		}
@@ -197,6 +215,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 						// Returning because login function handles replies
 						return 0;
 					}
+					break;
 
 			// Logout
 			case 1: if(info == users.end()){
@@ -220,8 +239,27 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 			// Ping
 			case 3: strcpy(send_buf, "ping output: \n");
 					break;
+				
+			// w
+			case 4: if(info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					else{
+						strcpy(send_buf, w_command());
+					}
+					break;
+
+			// Whoami
+			case 5: if (info != users.end()){
+						string name = info->first + "\n";
+						strcpy(send_buf, const_cast<char *> (name.c_str()));
+					}
+					else{
+						strcpy(send_buf, "You are not logged in.\n");
+					}
+					break;
 			// Exit
-			case 4: if(info != users.end()){
+			case 6: if(info != users.end()){
 						info->second.second = 0;
 						info = users.end();
 					}
@@ -240,16 +278,20 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 	return 0;
 }
 
-void handle_client(const int new_fd){
+/* Threads call this function to handle each client */
+void* handle_client(void* data){
 
 	/* params
 	*
-	* new_fd: Client connection descriptor
+	* data: Void pointer to int connection descriptor
 	*/
 
-	// Not logged in at first
+	// Nobody logged in at first
 	UserMap::iterator info = users.end();
 	
+	// Converting void ptr argument to int
+	int new_fd = *((int*)data);
+
 	// Loop to handle all commands sent by one client
 	while(1){
 
@@ -262,17 +304,17 @@ void handle_client(const int new_fd){
 		if ((numbytes = recv(new_fd, command, MAXLEN-1, 0)) == -1){
 			perror("recv");
 			close(new_fd);
-			exit(1);
+			pthread_exit((void*)1);
 		}
 		// If client closes connection
 		if (numbytes == 0){
 			close(new_fd);
-			return;
+			return NULL;
 		}
 		command[numbytes] = '\0';
 		if ((run_command(new_fd, string(command), info)) == 1){
 			// Returns only when connection is closed
-			return;
+			return NULL;
 		}
 
 	}
@@ -290,9 +332,6 @@ int main()
 	struct sockaddr_in serv_addr, client_addr;
 	socklen_t addr_len = sizeof(struct sockaddr_in);
 	int yes=1;
-
-	// For signal handling
-	struct sigaction sa;
 
 	// Filling in server address, port and family
 	memset(&serv_addr, 0, sizeof(serv_addr));
@@ -326,15 +365,6 @@ int main()
 		exit(1);
 	}
 
-	// To wait on zombies
-	sa.sa_handler = sigchld_handler; 
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-		perror("sigaction");
-		exit(1);
-	}
-
 	// Ready
 	printf("Server: waiting for connections...\n");
 
@@ -354,19 +384,9 @@ int main()
 		inet_ntop(AF_INET, &client_addr.sin_addr, ip4, INET_ADDRSTRLEN);
 		printf("server: got connection from %s\n", ip4);
 
-		// Create a child process to handle this client
-		if (!fork()) {
-
-			// Child doesn't need the listener
-			close(sockfd); 
-			handle_client(new_fd);
-			// Handle_client returns when connection is closed
-			printf("Client closed connection\n");
-			// Chile process exits
-			exit(0);
-		}
-		// Parent doesn't need this
-		close(new_fd); 
+		// Create thread to handle each client
+		pthread_t thread;
+		pthread_create(&thread, NULL, handle_client, &new_fd);
 	}
 	return 0;
 }
