@@ -6,33 +6,21 @@
 #include <unordered_map>
 #include <utility>
 
+#include "include/sploit.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
-#include <pthread.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
+
 
 using namespace std;
-
-#define BACKLOG 10	 // how many pending connections queue will hold
 
 #define MAXLEN 100  // Maximum length of command accepted
 
 /* Issues
  *
- * Need to move commons to sploit.h
  * Need to read from conf file
- * Need to write functions to  send and recv while handling errors
- * Shared variables between childs for w function
- * Prompt should be given by the server. ($, user $)
  * How to stop server
  * Handle: login $username dsjfl, pass $password ksdfj
 */
@@ -72,6 +60,7 @@ void parse_conf_file(){
 	PORT = 3490;
 }
 
+
 /* Sends back a list of logged in users */
 // BUG: Can overflow buffer if there are a large number of users (Can be left as is)
 char * w_command(){
@@ -89,23 +78,21 @@ char * w_command(){
 	return const_cast<char*> (list.c_str());
 
 }
+
 /* Handles everything related to loggin in an user */
-void client_login(const int new_fd, const string command, UserMap::iterator& info){
+void client_login(const int new_fd, const string command, UserMap::iterator& info, char* send_buf){
 
 	/* params
 	*
 	* new_fd: Socket descriptor from client connection
 	* command: string of format: login $USERNAME
 	* info: UserMap iterator which will point to user's hash entry
+	* send_buf: Reply buffer which will be filled in with command output
 	*/
 
 	// For sername password which we receive
 	string username;
 	string password;
-
-	// To save reply to send back
-	char send_buf[MAXLEN];
-	memset(send_buf, 0, MAXLEN);
 	
 	// To tokenize string
 	istringstream iss(command);
@@ -125,7 +112,7 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 		int numbytes = 0;
 		
 		// Asking for password
-		strcpy(send_buf, "Enter password, Format: pass $PASSWORD\n");
+		strcpy(send_buf, "Enter password, Format: pass $PASSWORD\n$: ");
 		send(new_fd, send_buf, strlen(send_buf), 0);
 		
 		// Receiving password
@@ -137,8 +124,7 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 
 		// Should be in format: pass $PASSWORD
 		if (password != "pass"){
-			strcpy(send_buf, "Wrong format\n$");
-			send(new_fd, send_buf, strlen(send_buf), 0);
+			strcpy(send_buf, "Wrong format\n");
 			return;
 		}
 		
@@ -156,42 +142,36 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 				info->second.second = 1;
 				strcpy(send_buf, "Login successful\n");
 			}
-			send(new_fd, send_buf, strlen(send_buf), 0);
 			return;
 		}
 		//Wrong password
 		else{
 			strcpy(send_buf, "Wrong password\n");
-			send(new_fd, send_buf, strlen(send_buf), 0);
 			return; 
 		}
 	}
 	// Wrong username
 	else{
 		strcpy(send_buf,"Username not recognized\n");
-		send(new_fd, send_buf, strlen(send_buf), 0);
 		return; 
 	}
 }
 
-/* 
-* Function to parse and run command sent by client
-* ret type: int
-* ret 1: Closed
-* ret 0: Normal exit
-*/
-int run_command(const int new_fd, string command, UserMap::iterator& info){
+/* Function to parse and run command sent by client */
+int run_command(const int new_fd, string command, UserMap::iterator& info, char* send_buf){
 
 	/* params
 	*
 	* new_fd: client connection descriptor
 	* command: command received by the client
 	* info: Iterator to user's hash entry if he is logged in
+	* send_buf: Reply buffer which will be filled in with command output
+	* 
+	* ret
+	* 
+	* Normal Exit: 0
+	* Closed: -1
 	*/
-
-	// To save reply to client
-	char send_buf[MAXLEN];
-	memset(send_buf, 0, MAXLEN);
 
 	// Tokenize command received
 	istringstream iss(command);
@@ -205,13 +185,14 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 	// If command is in map
 	else{
 
-			switch(commands.find(com)->second){
+		switch(commands.find(com)->second){
+
 			// Login
 			case 0: if (info != users.end()){
 						strcpy(send_buf, "Already logged in!\n");
 					}
 					else{
-						client_login(new_fd, command, info);
+						client_login(new_fd, command, info, send_buf);
 						// Returning because login function handles replies
 						return 0;
 					}
@@ -236,6 +217,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 						strcpy(send_buf, "ls output: \n");
 					}
 					break;
+
 			// Ping
 			case 3: strcpy(send_buf, "ping output: \n");
 					break;
@@ -258,6 +240,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 						strcpy(send_buf, "You are not logged in.\n");
 					}
 					break;
+
 			// Exit
 			case 6: if(info != users.end()){
 						info->second.second = 0;
@@ -265,16 +248,16 @@ int run_command(const int new_fd, string command, UserMap::iterator& info){
 					}
 					close(new_fd);
 					// Returning as no need to send reply
-					return 1;
+					return -1;
+
 			// mkdir
 			case 9: strcpy(send_buf, "calling system functions: \n");
 					break;
-			
+		
 		}
 	}
 
-	// Sending back reply to command
-	send(new_fd, send_buf, strlen(send_buf), 0);
+	// Success in parsing and executing command
 	return 0;
 }
 
@@ -292,13 +275,18 @@ void* handle_client(void* data){
 	// Converting void ptr argument to int
 	int new_fd = *((int*)data);
 
+	// Send prompt to client
+	send(new_fd, "$: ", 3, 0);
+
 	// Loop to handle all commands sent by one client
 	while(1){
 
 		// Buffer to recieve command
 		char command[MAXLEN];
+		char send_buf[MAXLEN];
 		int numbytes;
 		memset(command, 0, MAXLEN);
+		memset(send_buf, 0, MAXLEN);
 
 		//Receive command from the client
 		if ((numbytes = recv(new_fd, command, MAXLEN-1, 0)) == -1){
@@ -312,9 +300,20 @@ void* handle_client(void* data){
 			return NULL;
 		}
 		command[numbytes] = '\0';
-		if ((run_command(new_fd, string(command), info)) == 1){
+
+		// Try to run the command
+		if ((run_command(new_fd, string(command), info, send_buf)) == -1){
 			// Returns only when connection is closed
 			return NULL;
+		}
+
+		// Adding prompt to reply
+		strcpy(send_buf+strlen(send_buf), "$: ");
+
+		// Sending reply to client
+		if (send(new_fd, send_buf, strlen(send_buf), 0) == -1){
+			perror("send");
+			continue;
 		}
 
 	}
@@ -328,42 +327,12 @@ int main()
 	parse_conf_file();
 	
 	// Variables needed for socket
-	int sockfd, new_fd;  
-	struct sockaddr_in serv_addr, client_addr;
+	int sockfd, new_fd; 
+	struct sockaddr_in client_addr;
 	socklen_t addr_len = sizeof(struct sockaddr_in);
-	int yes=1;
-
-	// Filling in server address, port and family
-	memset(&serv_addr, 0, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = htons(INADDR_ANY);
-	serv_addr.sin_port = htons(PORT);
-
-	// Creating a TCP socket
-	// Q: Move into function?
-	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-		perror("server: socket");
-		exit(1);
-	}
-
-	// To reuse socket
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-		perror("setsockopt");
-		exit(1);
-	}
-
-	// Binding port
-	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) == -1) {	
-		close(sockfd);
-		perror("server: bind");
-		exit(1);
-	}
-
-	// Start listening
-	if (listen(sockfd, BACKLOG) == -1) {
-		perror("listen");
-		exit(1);
-	}
+	
+	// Start listening on mentioned port
+	sockfd = listening_socket(PORT, 1);
 
 	// Ready
 	printf("Server: waiting for connections...\n");
@@ -382,7 +351,7 @@ int main()
 		// Printing client IP address
 		char ip4[INET_ADDRSTRLEN];
 		inet_ntop(AF_INET, &client_addr.sin_addr, ip4, INET_ADDRSTRLEN);
-		printf("server: got connection from %s\n", ip4);
+		printf("Server: got connection from %s\n", ip4);
 
 		// Create thread to handle each client
 		pthread_t thread;
