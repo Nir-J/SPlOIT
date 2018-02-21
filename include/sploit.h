@@ -3,11 +3,6 @@
 
 #define DEBUG true
 
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -16,17 +11,20 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 
-struct User {
-    const char* uname;
-    const char* pass;
+#include <errno.h>
+#include <pthread.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
-    bool isLoggedIn;
-};
+/* Connects to the specified IP and port */
+int connect_to_socket(int port, char * ip);
 
-struct Command {
-    const char* cname;
-    const char* cmd;
-    const char* params;
-};
+
+/* Function to create a listening connection and return socket descriptor */
+int listening_socket(int port, int reuse);
+
 
 #endif
