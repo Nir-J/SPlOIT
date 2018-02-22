@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/sendfile.h>
 
 
 using namespace std;
@@ -31,11 +32,18 @@ typedef unordered_map<string, pair<string, int> > UserMap;
 // Has the form Command: command_id
 typedef unordered_map<string, int > CmdMap;
 
+struct args{
+	int sockfd;
+	int file;
+	long size;
+	int send;
+};
+
 // Global variables
 UserMap users;
 CmdMap commands;
-
 int PORT;
+
 
 /* Parses conf file and fills in global variables */
 void parse_conf_file(){
@@ -48,16 +56,165 @@ void parse_conf_file(){
 
 	// Commands can be enum too
 	commands.insert(pair<string, int> ("login", 0));
-	commands.insert(pair<string, int> ("logout", 1));
-	commands.insert(pair<string, int> ("ls", 2));
-	commands.insert(pair<string, int> ("ping", 3));
-	commands.insert(pair<string, int> ("w", 4));
-	commands.insert(pair<string, int> ("whoami", 5));
-	commands.insert(pair<string, int> ("exit", 6));
-	commands.insert(pair<string, int> ("mkdir", 9));
+	commands.insert(pair<string, int> ("ping" , 1));
+	commands.insert(pair<string, int> ("ls"   , 2));
+	commands.insert(pair<string, int> ("cd"   , 3));
+	commands.insert(pair<string, int> ("get"  , 4));
+	commands.insert(pair<string, int> ("put"  , 5));
+	commands.insert(pair<string, int> ("date" , 6));
+	commands.insert(pair<string, int> ("whoami", 7));
+	commands.insert(pair<string, int> ("w"    , 8));
+	commands.insert(pair<string, int> ("logout", 9));
+	commands.insert(pair<string, int> ("exit"  , 10));
+	commands.insert(pair<string, int> ("others", 11));
+
 
 	// Port number
 	PORT = 3490;
+}
+
+// Thread function which waits for client to connect to port
+void* wait_for_connect(void* data){
+
+	struct args* argument = (args*) data;
+
+	// Variables needed for socket
+	int new_fd; 
+	struct sockaddr_in client_addr;
+	socklen_t addr_len = sizeof(struct sockaddr_in);
+
+	// Accepting connections
+	new_fd = accept(argument->sockfd, (struct sockaddr *)&client_addr, &addr_len);
+	if (new_fd == -1) {
+		perror("accept");
+		free(argument);
+		return NULL;
+	}
+
+	// If send is true
+	if (argument->send == 1){
+		// Sending file
+	    long remain_data = argument->size;
+	    int sent_bytes;
+
+
+	    /* Sending file data */
+	    while ((remain_data > 0) && (sent_bytes = sendfile(new_fd, argument->file, NULL, MAXLEN-1)))
+	    {
+	    	remain_data -= sent_bytes;
+	    }
+	}
+	// Receiving file
+	else{
+
+		int file = argument->file;
+	    char buffer[MAXLEN];
+	    int numbytes;
+	    long remain_data = argument->size;
+
+	    while ( (remain_data > 0) && ((numbytes = recv(new_fd, buffer, MAXLEN-1, 0)) > 0))
+	    {
+	            write(file, buffer, numbytes);
+	            remain_data -= numbytes;
+	    }
+	}
+	close(new_fd);
+    close(argument->file);
+    close(argument->sockfd);
+	free(argument);
+}
+
+
+// Doesn't handle path for now
+void send_file(int new_fd, string filename, char* send_buf, UserMap::iterator info){
+
+	struct stat file_stat;   
+  	if (stat (filename.c_str(), &file_stat) == 0){
+  		// File exists
+
+  		// Set up socket with any open port
+  		int send_socket = listening_socket(0, 0);
+  		struct sockaddr_in sin;
+		socklen_t len = sizeof(sin);
+
+		if (getsockname(send_socket, (struct sockaddr *)&sin, &len) == -1){
+		    perror("getsockname");
+		    strcpy(send_buf, "Failed to allocate port for transfer.\n");
+		    return;
+		}
+
+  		if (send_socket != -1){
+  			
+  			int file = open(filename.c_str(), O_RDONLY);
+  			
+  			// Arguments to pass to thread which will handle transfer
+  			// Do not pass pointers to local variables
+  			struct args* argument = (args*) malloc(sizeof(struct args));
+  			argument->file = file;
+  			argument->sockfd = send_socket;
+  			argument->size = file_stat.st_size;
+  			argument->send = 1;
+
+  			// Creating thread and sending it to accept connection
+  			pthread_t thread;
+  			pthread_create(&thread, NULL, wait_for_connect, argument);
+
+  			// Send back port and file information to the client
+  			sprintf(send_buf, "get port: %d size: %ld\n", ntohs(sin.sin_port), file_stat.st_size);
+  		}
+  		// Error in finding free socket
+  		else{
+  			strcpy(send_buf, "Failed to allocate port for transfer.\n");
+  		}
+  	}
+  	// Error accessing file
+  	else{
+  		strcpy(send_buf, "Could not open file for transfer.\n");
+  	}
+
+}
+
+// Doesn't handle path for now
+void receive_file(int new_fd, string filename, string size_string, char* send_buf, UserMap::iterator info){
+
+	// BUG: atoi
+	long size = atoi(size_string.c_str());
+
+	// Set up socket with any open port
+	int receive_socket = listening_socket(0, 0);
+	struct sockaddr_in sin;
+	socklen_t len = sizeof(sin);
+
+	if (getsockname(receive_socket, (struct sockaddr *)&sin, &len) == -1){
+		perror("getsockname");
+		strcpy(send_buf, "Failed to allocate port for transfer.\n");
+		return;
+	}
+
+	if (receive_socket != -1){
+		
+		
+		struct args* argument = (args*) malloc(sizeof(struct args));
+		
+		int file = open(filename.c_str(), O_WRONLY | O_CREAT);
+		// No file descriptor
+		argument->file = file;
+		argument->sockfd = receive_socket;
+		argument->size = size;
+		argument->send = 0;
+
+		// Creating thread and sending it to accept connection
+		pthread_t thread;
+		pthread_create(&thread, NULL, wait_for_connect, argument);
+
+		// Send back port and file information to the client
+		sprintf(send_buf, "put port: %d\n", ntohs(sin.sin_port));
+	}
+	// Error in finding free socket
+	else{
+		strcpy(send_buf, "Failed to allocate port for transfer.\n");
+	}
+
 }
 
 
@@ -198,15 +355,8 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					}
 					break;
 
-			// Logout
-			case 1: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						info->second.second = 0;
-						info = users.end();
-						strcpy(send_buf, "Logged out\n");
-					}
+			// Ping
+			case 1: strcpy(send_buf, "ping output: \n");
 					break;
 
 			// ls
@@ -218,21 +368,44 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					}
 					break;
 
-			// Ping
-			case 3: strcpy(send_buf, "ping output: \n");
-					break;
-				
-			// w
-			case 4: if(info == users.end()){
+			// cd
+			case 3: break;
+
+			//get
+			case 4: if(0 && info == users.end()){
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
-						strcpy(send_buf, w_command());
+						string filename;
+						if (iss >> filename){
+							send_file(new_fd, filename, send_buf, info);
+						}
+						else{
+							strcpy(send_buf, "Please enter filename\n");
+						}
 					}
 					break;
 
+			//put
+			case 5: if(0 && info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					else{
+						string filename, size;
+						if (iss >> filename && iss >> size){
+							receive_file(new_fd, filename, size, send_buf, info);
+						}
+						else{
+							strcpy(send_buf, "Please enter filename and size\n");
+						}
+					}
+					break;
+
+			// date
+			case 6: break;
+
 			// Whoami
-			case 5: if (info != users.end()){
+			case 7: if (info != users.end()){
 						string name = info->first + "\n";
 						strcpy(send_buf, const_cast<char *> (name.c_str()));
 					}
@@ -241,8 +414,28 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					}
 					break;
 
+			// w
+			case 8: if(info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					else{
+						strcpy(send_buf, w_command());
+					}
+					break;
+
+			// Logout
+			case 9: if(info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					else{
+						info->second.second = 0;
+						info = users.end();
+						strcpy(send_buf, "Logged out\n");
+					}
+					break;
+
 			// Exit
-			case 6: if(info != users.end()){
+			case 10: if(info != users.end()){
 						info->second.second = 0;
 						info = users.end();
 					}
@@ -250,8 +443,8 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					// Returning as no need to send reply
 					return -1;
 
-			// mkdir
-			case 9: strcpy(send_buf, "calling system functions: \n");
+			// others
+			case 11: strcpy(send_buf, "calling system functions: \n");
 					break;
 		
 		}
