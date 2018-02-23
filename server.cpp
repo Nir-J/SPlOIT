@@ -17,20 +17,22 @@
 
 using namespace std;
 
-#define MAXLEN 100  // Maximum length of command accepted
+#define MAXLEN 1024 // Maximum length of command accepted
 
 /* Issues
  *
  * Need to read from conf file
  * How to stop server
  * Handle: login $username dsjfl, pass $password ksdfj
+ * Need to remove common headers
+ * Implement cd
 */
 
 
 // Has the form User : (pass, login_status)
 typedef unordered_map<string, pair<string, int> > UserMap;
 // Has the form Command: command_id
-typedef unordered_map<string, int > CmdMap;
+typedef unordered_map<string, pair<string, int> > CmdMap;
 
 struct args{
 	int sockfd;
@@ -45,6 +47,48 @@ CmdMap commands;
 int PORT;
 
 
+/* Takes in char* command, executes it, and fills in send_buf with output */
+void execution(const char *command, char* send_buf){
+
+	
+	FILE *pf;
+
+    // Setup our pipe for reading and execute our command.
+    if((pf = popen(command,"r")) != NULL){
+        char *ln = NULL;
+        size_t len = 0;
+        int numbytes = 0;
+        int offset = 0;
+        while ((numbytes=getline(&ln, &len, pf)) != -1){
+        	// BUG: Will overflow if strcpy
+            strncpy(send_buf+offset, ln, MAXLEN-1-offset);
+            offset += (numbytes);
+        }
+        free(ln);
+        pclose(pf);
+    }
+    else{
+        strcpy(send_buf, "Could not run command\n");
+    }
+    return;
+}
+
+// Init for inbuild commands
+void init(){
+	
+	commands.insert(make_pair("login", make_pair("none", 0)));
+	commands.insert(make_pair("ping",  make_pair("none", 1)));
+	commands.insert(make_pair("ls",    make_pair("ls -l 2>&1", 2)));
+	commands.insert(make_pair("cd",    make_pair("none", 3)));
+	commands.insert(make_pair("get",   make_pair("none", 4)));
+	commands.insert(make_pair("put",   make_pair("none", 5)));
+	commands.insert(make_pair("date",  make_pair("date 2>&1", 6)));
+	commands.insert(make_pair("whoami", make_pair("none", 7)));
+	commands.insert(make_pair("w",     make_pair("none", 8)));
+	commands.insert(make_pair("logout", make_pair("none", 9)));
+	commands.insert(make_pair("exit",  make_pair("none", 10)));
+}
+
 /* Parses conf file and fills in global variables */
 void parse_conf_file(){
 	// Initialize users and commands for now
@@ -54,20 +98,8 @@ void parse_conf_file(){
 	users.insert(make_pair("basa", make_pair("456", 0)));
 	users.insert(make_pair("jojo", make_pair("789", 0)));
 
-	// Commands can be enum too
-	commands.insert(pair<string, int> ("login", 0));
-	commands.insert(pair<string, int> ("ping" , 1));
-	commands.insert(pair<string, int> ("ls"   , 2));
-	commands.insert(pair<string, int> ("cd"   , 3));
-	commands.insert(pair<string, int> ("get"  , 4));
-	commands.insert(pair<string, int> ("put"  , 5));
-	commands.insert(pair<string, int> ("date" , 6));
-	commands.insert(pair<string, int> ("whoami", 7));
-	commands.insert(pair<string, int> ("w"    , 8));
-	commands.insert(pair<string, int> ("logout", 9));
-	commands.insert(pair<string, int> ("exit"  , 10));
-	commands.insert(pair<string, int> ("others", 11));
-
+	// Commands parsed from aliases
+	commands.insert(make_pair("alias", make_pair("alias command", 11))); // Same number for all aliases
 
 	// Port number
 	PORT = 3490;
@@ -196,7 +228,7 @@ void receive_file(int new_fd, string filename, string size_string, char* send_bu
 		
 		struct args* argument = (args*) malloc(sizeof(struct args));
 		
-		int file = open(filename.c_str(), O_WRONLY | O_CREAT);
+		int file = open(filename.c_str(), O_CREAT | O_WRONLY, 0666 );
 		// No file descriptor
 		argument->file = file;
 		argument->sockfd = receive_socket;
@@ -298,6 +330,9 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 			else{
 				info->second.second = 1;
 				strcpy(send_buf, "Login successful\n");
+				//
+				// Should cd into home directory of user
+				//
 			}
 			return;
 		}
@@ -315,12 +350,12 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 }
 
 /* Function to parse and run command sent by client */
-int run_command(const int new_fd, string command, UserMap::iterator& info, char* send_buf){
+int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, char* send_buf){
 
 	/* params
 	*
 	* new_fd: client connection descriptor
-	* command: command received by the client
+	* command_str: command received by the client in char pointer format
 	* info: Iterator to user's hash entry if he is logged in
 	* send_buf: Reply buffer which will be filled in with command output
 	* 
@@ -330,7 +365,8 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 	* Closed: -1
 	*/
 
-	// Tokenize command received
+	// Tokenize command received to get the first word
+	string command(command_cstr);
 	istringstream iss(command);
 	string com;
 	iss >> com;
@@ -341,8 +377,10 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 	}
 	// If command is in map
 	else{
-
-		switch(commands.find(com)->second){
+		// Find command in hashmap
+		CmdMap::iterator cmd_iter = commands.find(com);
+		// Switch for command number
+		switch(cmd_iter->second.second){
 
 			// Login
 			case 0: if (info != users.end()){
@@ -364,7 +402,8 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
-						strcpy(send_buf, "ls output: \n");
+						// Execute command string in hash entry
+						execution(cmd_iter->second.first.c_str(), send_buf);
 					}
 					break;
 
@@ -372,7 +411,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 			case 3: break;
 
 			//get
-			case 4: if(0 && info == users.end()){
+			case 4: if(info == users.end()){
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
@@ -387,7 +426,7 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					break;
 
 			//put
-			case 5: if(0 && info == users.end()){
+			case 5: if(info == users.end()){
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
@@ -402,7 +441,14 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					break;
 
 			// date
-			case 6: break;
+			case 6: if(info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					// Execute command string in hash and fill send_buf with output
+					else{
+						execution(cmd_iter->second.first.c_str(), send_buf);
+					}
+					break;
 
 			// Whoami
 			case 7: if (info != users.end()){
@@ -444,7 +490,13 @@ int run_command(const int new_fd, string command, UserMap::iterator& info, char*
 					return -1;
 
 			// others
-			case 11: strcpy(send_buf, "calling system functions: \n");
+			case 11: // Execute command string in hash and fill send_buf with output
+					
+					// First we need to append command with 2>&1 to catch error stream
+					string alias_command = cmd_iter->second.first;
+					alias_command += " 2>&1";
+
+					execution(alias_command.c_str(), send_buf);
 					break;
 		
 		}
@@ -495,7 +547,7 @@ void* handle_client(void* data){
 		command[numbytes] = '\0';
 
 		// Try to run the command
-		if ((run_command(new_fd, string(command), info, send_buf)) == -1){
+		if ((run_command(new_fd, command, info, send_buf)) == -1){
 			// Returns only when connection is closed
 			return NULL;
 		}
@@ -516,7 +568,9 @@ void* handle_client(void* data){
 int main()
 {
 
-	// Fill global variables
+	//init commands
+	init();
+	// Fill global variables after parsing conf file
 	parse_conf_file();
 	
 	// Variables needed for socket

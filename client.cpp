@@ -18,7 +18,7 @@
 
 #include <arpa/inet.h>
 
-#define MAXLEN 100 // Max length of command which we send 
+#define MAXLEN 1024 // Max length of command which we send 
 
 using namespace std;
 // Global variables
@@ -26,96 +26,147 @@ char server_ip[33];
 
 /* Issues
 *
-* Need to add get put handling
+* Need to delete comman headers
+* Need to automate
 */
 
-
+struct args{
+	int port;
+	int file;
+	long size;
+};
 
 
 void* receive_file(void* data){
 
-	istringstream iss((char*)data);
-
-	// Get port information
-	string portstring;
-	iss >> portstring;  // get
-	iss >> portstring; // port
-	iss >> portstring; // $PORT
-
-	int port = atoi(portstring.c_str());
-
-	// Getting file size
-	string sizestring; 
-	iss >> sizestring; // size
-	iss >> sizestring; // $SIZE
-
-	// BUG: atoi
-	long size = atoi(sizestring.c_str());
-
+	struct args* argument = (struct args*) data;
+	
 	// Connect to the server port
 	int recv_socket;
-	if( (recv_socket = connect_to_socket(port, server_ip)) == -1){
-		fprintf(stderr, "%d and %s\n", port, server_ip);
+	if( (recv_socket = connect_to_socket(argument->port, server_ip)) == -1){
+		fprintf(stderr, "%d and %s\n", argument->port, server_ip);
 		fprintf(stderr, "Thread could not connect to server.");
 		return NULL;
 	}
 
 	// Receiving file
-    long remain_data = size;
-    // Need to pass in name
-    FILE* file = fopen("received_file.txt", "w");
+    long remain_data = argument->size;
+    int file = argument->file;
     char buffer[MAXLEN];
     int numbytes;
 
+
     while ( (remain_data > 0) && ((numbytes = recv(recv_socket, buffer, MAXLEN-1, 0)) > 0))
     {
-            fwrite(buffer, sizeof(char), numbytes, file);
-            remain_data -= numbytes;
+        if((write(file, buffer, numbytes)) == -1){
+        	perror("write");
+        }
+        remain_data -= numbytes;
+
     }
-    fclose(file);
+    close(file);
     close(recv_socket);
 
 }
 
 void* send_file( void* data ){
 
-	istringstream iss((char*)data);
 
-	// Get port information
-	string portstring;
-	iss >> portstring;  // put
-	iss >> portstring; // port
-	iss >> portstring; // $PORT
-
-	int port = atoi(portstring.c_str());
-
+	struct args* argument = (struct args*) data;
+	
 	// Connect to the server port
 	int send_socket;
-	if( (send_socket = connect_to_socket(port, server_ip)) == -1){
-		fprintf(stderr, "%d and %s\n", port, server_ip);
+	if( (send_socket = connect_to_socket(argument->port, server_ip)) == -1){
+		fprintf(stderr, "%d and %s\n", argument->port, server_ip);
 		fprintf(stderr, "Thread could not connect to server.");
 		return NULL;
 	}
 
-	// Sending file
-
-	// Need to pass in file name and size
-	int file = open("received_file.txt", O_RDONLY);
-	struct stat file_stat;   
-	stat("received_file.txt", &file_stat);
-    
-    long remain_data = file_stat.st_size;
+	// Assign fd and size
+	int file = argument->file;    
+    long remain_data = argument->size;
     int sent_bytes;
-
 
     /* Sending file data */
     while ((remain_data > 0) && (sent_bytes = sendfile(send_socket, file, NULL, MAXLEN-1)))
     {
+    	if (sent_bytes == -1){
+    		perror("send");
+    	}
     	remain_data -= sent_bytes;
     }
     close(file);
     close(send_socket);
 
+}
+
+void handle_file_transfer(string filename, string reply, char* data){
+
+	pthread_t thread;
+	istringstream iss((char*)data);
+
+	if(reply == "get"){
+
+		// Get port information
+		string portstring;
+		iss >> portstring;  // get
+		iss >> portstring; // port
+		iss >> portstring; // $PORT
+		int port = atoi(portstring.c_str());
+
+		// Getting file size
+		string sizestring; 
+		iss >> sizestring; // size
+		iss >> sizestring; // $SIZE
+		// BUG: atoi
+		long size = atoi(sizestring.c_str());
+
+		// Create new file in write mode
+		int file;
+		if((file = open(filename.c_str(), O_CREAT | O_WRONLY, 0666)) == -1){
+			perror("opening file");
+			return;
+		}
+
+		// Alocating a struct to send arguments to thread
+		struct args* argument = (struct args*) malloc(sizeof(struct args));
+		argument->size = size;
+		argument->port = port;
+		argument->file = file;
+
+		// Calling thread function
+		pthread_create(&thread, NULL, receive_file, argument);
+	}
+	else{
+
+		// Get port information
+		string portstring;
+		iss >> portstring;  // put
+		iss >> portstring; // port
+		iss >> portstring; // $PORT
+		int port = atoi(portstring.c_str());
+
+		// Open file in read mode
+		int file;
+		if((file = open(filename.c_str(), O_RDONLY)) == -1){
+			perror("opening file");
+			return;
+		}
+
+		// Get file size
+		struct stat file_stat;   
+		stat(filename.c_str(), &file_stat);
+	    
+
+		// Alocating a struct to send arguments to thread
+		struct args* argument = (struct args* ) malloc(sizeof(struct args));
+		argument->size = file_stat.st_size;
+		argument->port = port;
+		argument->file = file;
+
+		// Calling thread function
+		pthread_create(&thread, NULL, send_file, argument);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -147,7 +198,9 @@ int main(int argc, char *argv[])
 
 	printf("Client: connecting to %s\n", argv[1]);
 
-	string previous;
+	// To save filename of get/put
+	string filename;
+
 	// Main loop which takes user commands
 	while(1){
 
@@ -172,14 +225,7 @@ int main(int argc, char *argv[])
 		istringstream iss(buffer);
 		string reply;
 		if (iss >> reply && (reply == "get" || reply == "put")){
-			pthread_t thread;
-			if(reply == "get"){
-				pthread_create(&thread, NULL, receive_file, buffer);
-			}
-			else{
-				pthread_create(&thread, NULL, send_file, buffer);
-			}
-			
+			handle_file_transfer(filename, reply, buffer);
 		}
 
 		// Take user input
@@ -188,8 +234,14 @@ int main(int argc, char *argv[])
 			close(sockfd);
 			exit(1);
 		}
-		// Saving previous command in case of get / put
+		buffer[strlen(buffer)] = '\0';
 
+		// Saving filename in case of get / put
+		istringstream token(buffer);
+		token >> filename;
+		if (filename == "get" || filename == "put"){
+			token >> filename;
+		}
 		// Sending command to server
 		if (send(sockfd, buffer, strlen(buffer), 0) == -1){
 			perror("send");
