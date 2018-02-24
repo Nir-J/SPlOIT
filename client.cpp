@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
 	printf("Client: connecting to %s\n", argv[1]);
 
 	// To save filename of get/put
-	string filename;
+	string token;
 
 	// Main loop which takes user commands
 	while(1){
@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
 		istringstream iss(buffer);
 		string reply;
 		if (iss >> reply && (reply == "get" || reply == "put")){
-			handle_file_transfer(filename, reply, buffer);
+			handle_file_transfer(token, reply, buffer);
 		}
 
 		// Take user input
@@ -237,17 +237,23 @@ int main(int argc, char *argv[])
 		buffer[strlen(buffer)] = '\0';
 
 		// Saving filename in case of get / put
-		istringstream token(buffer);
-		token >> filename;
-		if (filename == "get" || filename == "put"){
-			token >> filename;
+		istringstream tokenize(buffer);
+		tokenize >> token;
+		if (token == "get" || token == "put"){
+			tokenize >> token;
 		}
+
 		// Sending command to server
 		if (send(sockfd, buffer, strlen(buffer), 0) == -1){
 			perror("send");
 			continue;
 		}	
 		
+		if (token == "exit"){
+			close(sockfd);
+			printf("Connection closed.\n");
+			break;
+		}
 	}
 	return 0;
 }
