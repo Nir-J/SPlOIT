@@ -18,6 +18,7 @@
 using namespace std;
 
 #define MAXLEN 1024 // Maximum length of command accepted
+#define STACK_SIZE (1024 * 1024)    /* Stack size for cloned child */
 
 /* Issues
  *
@@ -258,7 +259,7 @@ char * w_command(){
 
 	for(auto iter : users){
 
-		if (iter.second.second == 1)
+		if (iter.second.second != 0)
 			list += (iter.first + " ");
 	}
 	list += "\n";
@@ -322,18 +323,9 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 			// Pointing iterator to user's entry and changing login status
 			info = users.find(username);
 
-			// If client is logged in using another system
-			if (info->second.second == 1){
-				strcpy(send_buf, "You are already logged in using another terminal.\n");
-				info = users.end();
-			}
-			else{
-				info->second.second = 1;
-				strcpy(send_buf, "Login successful\n");
-				//
-				// Should cd into home directory of user
-				//
-			}
+			info->second.second += 1;
+			strcpy(send_buf, "Login successful\n");
+			chdir(info->first.c_str());
 			return;
 		}
 		//Wrong password
@@ -408,7 +400,21 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 					break;
 
 			// cd
-			case 3: break;
+			// Need to handle parent traversal
+			case 3: if(info == users.end()){
+						strcpy(send_buf, "You are not logged in!\n");
+					}
+					else{
+						string path;
+						iss >> path;
+						if ((chdir(path.c_str())) == -1){
+							strcpy(send_buf, "Invalid path\n");
+						}
+						else{
+							strcpy(send_buf, "successful\n");
+						}
+					}
+					break;
 
 			//get
 			case 4: if(info == users.end()){
@@ -474,7 +480,7 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
-						info->second.second = 0;
+						info->second.second -= 1;
 						info = users.end();
 						strcpy(send_buf, "Logged out\n");
 					}
@@ -507,7 +513,7 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 }
 
 /* Threads call this function to handle each client */
-void* handle_client(void* data){
+int handle_client(void* data){
 
 	/* params
 	*
@@ -522,6 +528,8 @@ void* handle_client(void* data){
 
 	// Send prompt to client
 	send(new_fd, "$: ", 3, 0);
+
+	string hd;
 
 	// Loop to handle all commands sent by one client
 	while(1){
@@ -542,14 +550,15 @@ void* handle_client(void* data){
 		// If client closes connection
 		if (numbytes == 0){
 			close(new_fd);
-			return NULL;
+			return 0;
 		}
 		command[numbytes] = '\0';
 
 		// Try to run the command
 		if ((run_command(new_fd, command, info, send_buf)) == -1){
 			// Returns only when connection is closed
-			return NULL;
+			fprintf(stderr, "c\n");
+			return 0;
 		}
 
 		// Adding prompt to reply
@@ -577,12 +586,16 @@ int main()
 	int sockfd, new_fd; 
 	struct sockaddr_in client_addr;
 	socklen_t addr_len = sizeof(struct sockaddr_in);
+
 	
 	// Start listening on mentioned port
 	sockfd = listening_socket(PORT, 1);
 
 	// Ready
 	printf("Server: waiting for connections...\n");
+
+	// So that all clones have their own filesystem
+	unshare(CLONE_FS);
 
 	// To server multiple clients
 	// BUG: Turning off client ?
@@ -595,14 +608,28 @@ int main()
 			continue;
 		}
 
+	
 		// Printing client IP address
 		char ip4[INET_ADDRSTRLEN];
 		inet_ntop(AF_INET, &client_addr.sin_addr, ip4, INET_ADDRSTRLEN);
 		printf("Server: got connection from %s\n", ip4);
 
-		// Create thread to handle each client
-		pthread_t thread;
-		pthread_create(&thread, NULL, handle_client, &new_fd);
+		char *stack;                    /* Start of stack buffer */
+        char *stackTop;                 /* End of stack buffer */
+        stack = (char*) malloc(STACK_SIZE);
+        if (stack == NULL){
+        	perror("malloc");
+        	continue;
+        }
+        stackTop = stack + STACK_SIZE;  /* Assume stack grows downward */
+
+        // Create thread to handle each client
+		int thread_id;
+		thread_id = clone(handle_client, stackTop, CLONE_THREAD|CLONE_VM|CLONE_SIGHAND , &new_fd);
+		if (thread_id == -1){
+			perror("clone");
+		}
+
 	}
 	return 0;
 }
