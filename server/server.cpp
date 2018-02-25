@@ -573,8 +573,7 @@ int handle_client(void* data){
 		// Try to run the command
 		if ((run_command(new_fd, command, info, send_buf)) == -1){
 			// Returns only when connection is closed
-			fprintf(stderr, "c\n");
-			return 0;
+			exit(0);
 		}
 
 		// Adding prompt to reply
@@ -610,6 +609,7 @@ int main()
 	// Ready
 	printf("Server: waiting for connections...\n");
 
+	// Signal handler to wait on children
 	struct sigaction sa;
 	sa.sa_handler = sigchld_handler; // reap all dead processes
     sigemptyset(&sa.sa_mask);
@@ -655,7 +655,6 @@ int main()
 		if (thread_id == -1){
 			perror("clone");
 		}
-		//waitpid(thread_id, &status, 0);
 
 	}
 	return 0;
