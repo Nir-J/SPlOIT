@@ -1,3 +1,7 @@
+server/client
+server/server
+client/client
+client/server
 client
 server
 *.o

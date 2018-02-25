@@ -8,9 +8,9 @@
 
 #include "include/sploit.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <sys/sendfile.h>
 
@@ -52,7 +52,7 @@ int PORT;
 void execution(const char *command, char* send_buf){
 
 	
-	FILE *pf;
+	FILE *pf = NULL;
 
     // Setup our pipe for reading and execute our command.
     if((pf = popen(command,"r")) != NULL){
