@@ -8,12 +8,18 @@
 
 #include "include/sploit.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <sys/sendfile.h>
-
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sched.h>
+#include<sys/types.h>
+#include<sys/wait.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -48,11 +54,21 @@ CmdMap commands;
 int PORT;
 
 
+void sigchld_handler(int s)
+{
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
+
+    while(waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errno;
+}
+
 /* Takes in char* command, executes it, and fills in send_buf with output */
 void execution(const char *command, char* send_buf){
 
 	
-	FILE *pf;
+	FILE *pf = NULL;
 
     // Setup our pipe for reading and execute our command.
     if((pf = popen(command,"r")) != NULL){
@@ -557,8 +573,7 @@ int handle_client(void* data){
 		// Try to run the command
 		if ((run_command(new_fd, command, info, send_buf)) == -1){
 			// Returns only when connection is closed
-			fprintf(stderr, "c\n");
-			return 0;
+			exit(0);
 		}
 
 		// Adding prompt to reply
@@ -594,8 +609,18 @@ int main()
 	// Ready
 	printf("Server: waiting for connections...\n");
 
+	// Signal handler to wait on children
+	struct sigaction sa;
+	sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
 	// So that all clones have their own filesystem
-	unshare(CLONE_FS);
+	//unshare(CLONE_FS);
 
 	// To server multiple clients
 	// BUG: Turning off client ?
@@ -625,7 +650,8 @@ int main()
 
         // Create thread to handle each client
 		int thread_id;
-		thread_id = clone(handle_client, stackTop, CLONE_THREAD|CLONE_VM|CLONE_SIGHAND , &new_fd);
+		int status;
+		thread_id = clone(handle_client, stackTop, SIGCHLD | CLONE_VM , &new_fd);
 		if (thread_id == -1){
 			perror("clone");
 		}
