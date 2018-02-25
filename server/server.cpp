@@ -17,6 +17,9 @@
 #define _GNU_SOURCE
 #endif
 #include <sched.h>
+#include<sys/types.h>
+#include<sys/wait.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -50,6 +53,16 @@ UserMap users;
 CmdMap commands;
 int PORT;
 
+
+void sigchld_handler(int s)
+{
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
+
+    while(waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errno;
+}
 
 /* Takes in char* command, executes it, and fills in send_buf with output */
 void execution(const char *command, char* send_buf){
@@ -597,8 +610,17 @@ int main()
 	// Ready
 	printf("Server: waiting for connections...\n");
 
+	struct sigaction sa;
+	sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
 	// So that all clones have their own filesystem
-	unshare(CLONE_FS);
+	//unshare(CLONE_FS);
 
 	// To server multiple clients
 	// BUG: Turning off client ?
@@ -628,10 +650,12 @@ int main()
 
         // Create thread to handle each client
 		int thread_id;
-		thread_id = clone(handle_client, stackTop, CLONE_THREAD|CLONE_VM|CLONE_SIGHAND , &new_fd);
+		int status;
+		thread_id = clone(handle_client, stackTop, SIGCHLD | CLONE_VM , &new_fd);
 		if (thread_id == -1){
 			perror("clone");
 		}
+		//waitpid(thread_id, &status, 0);
 
 	}
 	return 0;
