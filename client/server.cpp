@@ -13,7 +13,13 @@
 #include <cstring>
 #include <unistd.h>
 #include <sys/sendfile.h>
-
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <sched.h>
+#include<sys/types.h>
+#include<sys/wait.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -26,7 +32,6 @@ using namespace std;
  * How to stop server
  * Handle: login $username dsjfl, pass $password ksdfj
  * Need to remove common headers
- * Implement cd
 */
 
 
@@ -47,6 +52,16 @@ UserMap users;
 CmdMap commands;
 int PORT;
 
+
+void sigchld_handler(int s)
+{
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
+
+    while(waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errno;
+}
 
 /* Takes in char* command, executes it, and fills in send_buf with output */
 void execution(const char *command, char* send_buf){
@@ -341,6 +356,69 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 	}
 }
 
+/* Fucntion to get name of current directory */
+string get_cur_dir(){
+
+	// Getting absolute path of current directory
+	char* cur = getcwd(NULL, 0);
+	
+	char* temp = NULL;
+	char* save_ptr = NULL;
+	string curdir;
+
+	// Iterate though the absolute path till you reach end dir
+	temp = strtok_r(cur, "/\n", &save_ptr);
+	curdir = string(temp);
+	while((temp = strtok_r(NULL, "/\n", &save_ptr)) != NULL){
+		curdir = string(temp);
+	}
+	free(cur);
+	// Curdir has name of current directory
+	return curdir;
+
+}
+
+/*Splits path sent by user and tries to chdir into each folder in path*/
+char* step_chdir(char* path, string home, char* send_buf){
+
+	// Saving current directory incase the path entered was invalid
+	char* cwd = getcwd(NULL, 0);
+
+	// We first assume that path is valid
+	int invalid = 0;
+
+	char* cur = NULL;
+	char* save_ptr = NULL;
+	cur = strtok_r(path, "/\n", &save_ptr);
+	do{
+		// If user is trying to cd into parent
+		if ((strcmp("..", cur)) == 0){
+			// To check if user is in his home directory
+			if (home == get_cur_dir()){
+				// user is not allowed to leave his home directory
+				invalid = 1;
+				break;
+			}	
+		}
+		if(chdir(cur) == -1){
+			invalid = 1;
+			break;
+		}
+
+	}while ((cur = strtok_r(NULL, "/\n", &save_ptr)) != NULL);
+
+	if(invalid == 1){
+		chdir(cwd);
+		free(cwd);
+		strcpy(send_buf, "Invalid path\n");
+	}
+	else{
+		free(cwd);
+		strcpy(send_buf, "Success\n");
+	}
+	
+}
+
 /* Function to parse and run command sent by client */
 int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, char* send_buf){
 
@@ -400,23 +478,23 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 					break;
 
 			// cd
-			// Need to handle parent traversal
 			case 3: if(info == users.end()){
 						strcpy(send_buf, "You are not logged in!\n");
 					}
 					else{
 						string path;
-						iss >> path;
-						if ((chdir(path.c_str())) == -1){
-							strcpy(send_buf, "Invalid path\n");
+						if(iss >> path){
+							// Try to cd into specified path and fill send_buf with result of operation
+							step_chdir(const_cast<char*>(path.c_str()), info->first, send_buf);
 						}
 						else{
-							strcpy(send_buf, "successful\n");
-						}
+							// If no path is entered
+							strcpy(send_buf, "Enter path\n");
+						}	
 					}
 					break;
 
-			//get
+			// get
 			case 4: if(info == users.end()){
 						strcpy(send_buf, "You are not logged in!\n");
 					}
@@ -557,8 +635,7 @@ int handle_client(void* data){
 		// Try to run the command
 		if ((run_command(new_fd, command, info, send_buf)) == -1){
 			// Returns only when connection is closed
-			fprintf(stderr, "c\n");
-			return 0;
+			exit(0);
 		}
 
 		// Adding prompt to reply
@@ -594,8 +671,18 @@ int main()
 	// Ready
 	printf("Server: waiting for connections...\n");
 
+	// Signal handler to wait on children
+	struct sigaction sa;
+	sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
 	// So that all clones have their own filesystem
-	unshare(CLONE_FS);
+	//unshare(CLONE_FS);
 
 	// To server multiple clients
 	// BUG: Turning off client ?
@@ -625,7 +712,8 @@ int main()
 
         // Create thread to handle each client
 		int thread_id;
-		thread_id = clone(handle_client, stackTop, CLONE_THREAD|CLONE_VM|CLONE_SIGHAND , &new_fd);
+		int status;
+		thread_id = clone(handle_client, stackTop, SIGCHLD | CLONE_VM , &new_fd);
 		if (thread_id == -1){
 			perror("clone");
 		}
