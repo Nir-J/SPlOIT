@@ -295,10 +295,11 @@ void * wait_for_connect(void * data) {
     close(argument->file);
     close(argument->sockfd);
     free(argument);
+    return NULL;
 }
 
 // Doesn't handle path for now
-void send_file(int new_fd, string filename, char * send_buf, UserMap::iterator info) {
+void send_file(string filename, char * send_buf) {
 
     struct stat file_stat;
     if (stat(filename.c_str(), & file_stat) == 0) {
@@ -347,7 +348,7 @@ void send_file(int new_fd, string filename, char * send_buf, UserMap::iterator i
 }
 
 // Doesn't handle path for now
-void receive_file(int new_fd, string filename, string size_string, char * send_buf, UserMap::iterator info) {
+void receive_file(string filename, string size_string, char * send_buf) {
 
     // BUG: atoi
     long size = atoi(size_string.c_str());
@@ -502,7 +503,7 @@ string get_cur_dir() {
 }
 
 /*Splits path sent by user and tries to chdir into each folder in path*/
-char * step_chdir(char * path, string home, char * send_buf) {
+void step_chdir(char * path, string home, char * send_buf) {
 
     // Saving current directory incase the path entered was invalid
     char * cwd = getcwd(NULL, 0);
@@ -631,7 +632,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             } else {
                 string filename;
                 if (iss >> filename) {
-                    send_file(new_fd, filename, send_buf, info);
+                    send_file(filename, send_buf);
                 } else {
                     strcpy(send_buf, "ERROR: Please enter filename\n");
                 }
@@ -647,7 +648,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             } else {
                 string filename, size;
                 if (iss >> filename && iss >> size) {
-                    receive_file(new_fd, filename, size, send_buf, info);
+                    receive_file(filename, size, send_buf);
                 } else {
                     strcpy(send_buf, "ERROR: Please enter a valid filename and size\n");
                 }
