@@ -342,11 +342,16 @@ void automatedmode(char *argv[], int port, FILE *fout)
         if (token == "exit"){
             close(sockfd);
             fprintf(fout,"Connection closed.\n");
-            break;
+            return;
         }
         
     }
-    
+    // Sending exit to server
+    if (send(sockfd, "exit\n", 5, 0) == -1){
+        perror("send");
+    }
+    close(sockfd);
+    fprintf(fout,"Connection closed.\n");
     return;
 }
 

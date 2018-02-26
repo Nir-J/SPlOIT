@@ -29,7 +29,7 @@ using namespace std;
 #define MAXLEN 1024 // Maximum length of command accepted
 #define STACK_SIZE (1024 * 1024)    /* Stack size for cloned child */
 
-#define CONFIG_FILE "sploit.conf"
+#define CONFIG_FILE "../sploit.conf"
 
 /* Issues
  *
