@@ -787,23 +787,21 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 		else if (cmd_iter->second.second == ""){
 
 			string to_exec;
-			// Getting the parameters sent by user into temp
-			string temp;
-			if(iss >> temp){
+			
+			// Sanitize parameters i fany
+			char *save_ptr;
+			char *parameter = strtok_r(command_cstr, " \n", &save_ptr);
+			parameter = strtok_r(NULL, ";\n", &save_ptr);
 
-				// Copying the parameters into a buffer for modification
-				char params[MAXLEN];
-				strcpy(params, temp.c_str());
-				// Sanitizing (splitting the parameter on ;)
-				char *save_ptr;
-				char *parameter = strtok_r(params, ";\n", &save_ptr);
-				// Building the command and executing
-				to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
-				execution(to_exec.c_str(), send_buf);
+			// Building the command and executing
+			if (parameter == NULL){
+				to_exec = commands.find(com)->second.first + " 2>&1";
 			}
 			else{
-				strcpy(send_buf, "ERROR: The command expects parameters\n");
+				to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
 			}
+			
+			execution(to_exec.c_str(), send_buf);
 
 		}
 		
@@ -881,7 +879,7 @@ int main()
 	//init commands
 	init();
 	// Fill global variables after parsing conf file
-	parse_conf_file();
+	//parse_conf_file();
 
 	int result = parse_config();
 	if(result != 0) {
