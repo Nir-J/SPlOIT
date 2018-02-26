@@ -120,7 +120,7 @@ void parse_conf_file(){
 	users.insert(make_pair("jojo", make_pair("789", 0)));
 
 	// Commands parsed from aliases
-	commands.insert(make_pair("name", make_pair("command", "params if any"))); // Same number for all aliases
+	commands.insert(make_pair("echo", make_pair("echo", ""))); // Same number for all aliases
 
 	// Port number
 	PORT = 3490;
@@ -692,16 +692,22 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 			string to_exec;
 			// Getting the parameters sent by user into temp
 			string temp;
-			iss >> temp;
-			// Copying the parameters into a buffer for modification
-			char params[MAXLEN];
-			strcpy(params, temp.c_str());
-			// Sanitizing (splitting the parameter on ;)
-			char *save_ptr;
-			char *parameter = strtok_r(params, ";\n", &save_ptr);
-			// Building the command and executing
-			to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
-			execution(to_exec.c_str(), send_buf);
+			if(iss >> temp){
+
+				// Copying the parameters into a buffer for modification
+				char params[MAXLEN];
+				strcpy(params, temp.c_str());
+				// Sanitizing (splitting the parameter on ;)
+				char *save_ptr;
+				char *parameter = strtok_r(params, ";\n", &save_ptr);
+				// Building the command and executing
+				to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
+				execution(to_exec.c_str(), send_buf);
+			}
+			else{
+				strcpy(send_buf, "ERROR: The command expects parameters\n");
+			}
+
 		}
 		
 		
