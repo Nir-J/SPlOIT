@@ -240,7 +240,20 @@ int main(int argc, char *argv[])
 		istringstream tokenize(buffer);
 		tokenize >> token;
 		if (token == "get" || token == "put"){
-			tokenize >> token;
+			if (token == "put"){
+				// If its put, we need to make sure client has the file
+				struct stat file_stat; 
+				tokenize >> token;  
+				if (stat (token.c_str(), &file_stat) != 0){
+					// Invalidate put command
+					strcpy(buffer, "put\n");
+				}
+			}
+			else{
+				tokenize >> token;
+			}
+			
+
 		}
 
 		// Sending command to server

@@ -20,6 +20,7 @@
 #include<sys/types.h>
 #include<sys/wait.h>
 #include <signal.h>
+#include <dirent.h>
 
 using namespace std;
 
@@ -32,13 +33,16 @@ using namespace std;
  * How to stop server
  * Handle: login $username dsjfl, pass $password ksdfj
  * Need to remove common headers
+ * ls overflow
+ * making newfd malloc has some problems
+ * 
 */
 
 
 // Has the form User : (pass, login_status)
 typedef unordered_map<string, pair<string, int> > UserMap;
 // Has the form Command: command_id
-typedef unordered_map<string, pair<string, int> > CmdMap;
+typedef unordered_map<string, pair<string, string> > CmdMap;
 
 struct args{
 	int sockfd;
@@ -51,16 +55,17 @@ struct args{
 UserMap users;
 CmdMap commands;
 int PORT;
+char BASE[4097]; // Maximum allowed path in linux
 
-
+/*Signal handler function to wait on child process*/
 void sigchld_handler(int s)
 {
-    // waitpid() might overwrite errno, so we save and restore it:
-    int saved_errno = errno;
+	// waitpid() might overwrite errno, so we save and restore it:
+	int saved_errno = errno;
 
-    while(waitpid(-1, NULL, WNOHANG) > 0);
+	while(waitpid(-1, NULL, WNOHANG) > 0);
 
-    errno = saved_errno;
+	errno = saved_errno;
 }
 
 /* Takes in char* command, executes it, and fills in send_buf with output */
@@ -68,41 +73,41 @@ void execution(const char *command, char* send_buf){
 
 	
 	FILE *pf = NULL;
-
-    // Setup our pipe for reading and execute our command.
-    if((pf = popen(command,"r")) != NULL){
-        char *ln = NULL;
-        size_t len = 0;
-        int numbytes = 0;
-        int offset = 0;
-        while ((numbytes=getline(&ln, &len, pf)) != -1){
-        	// BUG: Will overflow if strcpy
-            strncpy(send_buf+offset, ln, MAXLEN-1-offset);
-            offset += (numbytes);
-        }
-        free(ln);
-        pclose(pf);
-    }
-    else{
-        strcpy(send_buf, "Could not run command\n");
-    }
-    return;
+	fprintf(stderr, "%s\n", command);
+	// Setup our pipe for reading and execute our command.
+	if((pf = popen(command,"r")) != NULL){
+		char *ln = NULL;
+		size_t len = 0;
+		int numbytes = 0;
+		int offset = 0;
+		while ((numbytes=getline(&ln, &len, pf)) != -1){
+			// BUG: Will overflow
+			strncpy(send_buf+offset, ln, MAXLEN-1-offset);
+			offset += (numbytes);
+		}
+		free(ln);
+		pclose(pf);
+	}
+	else{
+	    strcpy(send_buf, "ERROR: Could not run command\n");
+	}
+	return;
 }
 
-// Init for inbuild commands
+// Init for implemented commands
 void init(){
 	
-	commands.insert(make_pair("login", make_pair("none", 0)));
-	commands.insert(make_pair("ping",  make_pair("none", 1)));
-	commands.insert(make_pair("ls",    make_pair("ls -l 2>&1", 2)));
-	commands.insert(make_pair("cd",    make_pair("none", 3)));
-	commands.insert(make_pair("get",   make_pair("none", 4)));
-	commands.insert(make_pair("put",   make_pair("none", 5)));
-	commands.insert(make_pair("date",  make_pair("date 2>&1", 6)));
-	commands.insert(make_pair("whoami", make_pair("none", 7)));
-	commands.insert(make_pair("w",     make_pair("none", 8)));
-	commands.insert(make_pair("logout", make_pair("none", 9)));
-	commands.insert(make_pair("exit",  make_pair("none", 10)));
+	commands.insert(make_pair("login", make_pair("", "")));
+	commands.insert(make_pair("ping",  make_pair("ping -c 1", "")));
+	commands.insert(make_pair("ls",    make_pair("ls -l 2>&1", "")));
+	commands.insert(make_pair("cd",    make_pair("", "")));
+	commands.insert(make_pair("get",   make_pair("", "")));
+	commands.insert(make_pair("put",   make_pair("", "")));
+	commands.insert(make_pair("date",  make_pair("date 2>&1", "")));
+	commands.insert(make_pair("whoami", make_pair("", "")));
+	commands.insert(make_pair("w",     make_pair("", "")));
+	commands.insert(make_pair("logout", make_pair("", "")));
+	commands.insert(make_pair("exit",  make_pair("", "")));
 }
 
 /* Parses conf file and fills in global variables */
@@ -115,10 +120,46 @@ void parse_conf_file(){
 	users.insert(make_pair("jojo", make_pair("789", 0)));
 
 	// Commands parsed from aliases
-	commands.insert(make_pair("alias", make_pair("alias command", 11))); // Same number for all aliases
+	commands.insert(make_pair("name", make_pair("command", "params if any"))); // Same number for all aliases
 
 	// Port number
 	PORT = 3490;
+
+	// Will have to handle if config file has a long base
+	strcpy(BASE, ".");
+}
+
+/* Function which will create home directories for all users*/
+int create_home_dirs(){
+
+	if (chdir(BASE) == -1){
+		perror("ERROR: Invalid base directory");
+		return -1;
+	}
+	for(auto iter : users){
+		char* name = const_cast<char*> (iter.first.c_str());
+		DIR* dir = opendir(name);
+		if (dir)
+		{
+			/* Directory exists. */
+			fprintf(stderr, "Dir already exists.\n");
+			closedir(dir);
+		}
+		else if (ENOENT == errno)
+		{
+			/* Directory does not exist. */
+			if(mkdir(name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1){
+				perror("ERROR: Failed to create directory");
+				return -1;
+			}
+		}
+		else
+		{
+			perror("ERROR: Failed to create directory");
+			return -1;
+		}	
+	}
+	return 0;
 }
 
 // Thread function which waits for client to connect to port
@@ -142,33 +183,33 @@ void* wait_for_connect(void* data){
 	// If send is true
 	if (argument->send == 1){
 		// Sending file
-	    long remain_data = argument->size;
-	    int sent_bytes;
+		long remain_data = argument->size;
+		int sent_bytes;
 
 
-	    /* Sending file data */
-	    while ((remain_data > 0) && (sent_bytes = sendfile(new_fd, argument->file, NULL, MAXLEN-1)))
-	    {
-	    	remain_data -= sent_bytes;
-	    }
+		/* Sending file data */
+		while ((remain_data > 0) && (sent_bytes = sendfile(new_fd, argument->file, NULL, MAXLEN-1)))
+		{
+			remain_data -= sent_bytes;
+		}
 	}
 	// Receiving file
 	else{
 
 		int file = argument->file;
-	    char buffer[MAXLEN];
-	    int numbytes;
-	    long remain_data = argument->size;
+		char buffer[MAXLEN];
+		int numbytes;
+		long remain_data = argument->size;
 
-	    while ( (remain_data > 0) && ((numbytes = recv(new_fd, buffer, MAXLEN-1, 0)) > 0))
-	    {
-	            write(file, buffer, numbytes);
-	            remain_data -= numbytes;
-	    }
+		while ( (remain_data > 0) && ((numbytes = recv(new_fd, buffer, MAXLEN-1, 0)) > 0))
+		{
+			write(file, buffer, numbytes);
+			remain_data -= numbytes;
+		}
 	}
 	close(new_fd);
-    close(argument->file);
-    close(argument->sockfd);
+	close(argument->file);
+	close(argument->sockfd);
 	free(argument);
 }
 
@@ -177,48 +218,48 @@ void* wait_for_connect(void* data){
 void send_file(int new_fd, string filename, char* send_buf, UserMap::iterator info){
 
 	struct stat file_stat;   
-  	if (stat (filename.c_str(), &file_stat) == 0){
-  		// File exists
+	if (stat (filename.c_str(), &file_stat) == 0){
+		// File exists
 
-  		// Set up socket with any open port
-  		int send_socket = listening_socket(0, 0);
-  		struct sockaddr_in sin;
+		// Set up socket with any open port
+		int send_socket = listening_socket(0, 0);
+		struct sockaddr_in sin;
 		socklen_t len = sizeof(sin);
 
 		if (getsockname(send_socket, (struct sockaddr *)&sin, &len) == -1){
-		    perror("getsockname");
-		    strcpy(send_buf, "Failed to allocate port for transfer.\n");
-		    return;
+			perror("getsockname");
+			strcpy(send_buf, "ERROR: Failed to allocate port for transfer.\n");
+			return;
 		}
 
-  		if (send_socket != -1){
-  			
-  			int file = open(filename.c_str(), O_RDONLY);
-  			
-  			// Arguments to pass to thread which will handle transfer
-  			// Do not pass pointers to local variables
-  			struct args* argument = (args*) malloc(sizeof(struct args));
-  			argument->file = file;
-  			argument->sockfd = send_socket;
-  			argument->size = file_stat.st_size;
-  			argument->send = 1;
+		if (send_socket != -1){
+			
+			int file = open(filename.c_str(), O_RDONLY);
+			
+			// Arguments to pass to thread which will handle transfer
+			// Do not pass pointers to local variables
+			struct args* argument = (args*) malloc(sizeof(struct args));
+			argument->file = file;
+			argument->sockfd = send_socket;
+			argument->size = file_stat.st_size;
+			argument->send = 1;
 
-  			// Creating thread and sending it to accept connection
-  			pthread_t thread;
-  			pthread_create(&thread, NULL, wait_for_connect, argument);
+			// Creating thread and sending it to accept connection
+			pthread_t thread;
+			pthread_create(&thread, NULL, wait_for_connect, argument);
 
-  			// Send back port and file information to the client
-  			sprintf(send_buf, "get port: %d size: %ld\n", ntohs(sin.sin_port), file_stat.st_size);
-  		}
-  		// Error in finding free socket
-  		else{
-  			strcpy(send_buf, "Failed to allocate port for transfer.\n");
-  		}
-  	}
-  	// Error accessing file
-  	else{
-  		strcpy(send_buf, "Could not open file for transfer.\n");
-  	}
+			// Send back port and file information to the client
+			sprintf(send_buf, "get port: %d size: %ld\n", ntohs(sin.sin_port), file_stat.st_size);
+		}
+		// Error in finding free socket
+		else{
+			strcpy(send_buf, "ERROR: Failed to allocate port for transfer.\n");
+		}
+	}
+	// Error accessing file
+	else{
+		strcpy(send_buf, "ERROR: Could not open file for transfer.\n");
+	}
 
 }
 
@@ -235,7 +276,7 @@ void receive_file(int new_fd, string filename, string size_string, char* send_bu
 
 	if (getsockname(receive_socket, (struct sockaddr *)&sin, &len) == -1){
 		perror("getsockname");
-		strcpy(send_buf, "Failed to allocate port for transfer.\n");
+		strcpy(send_buf, "ERROR: Failed to allocate port for transfer.\n");
 		return;
 	}
 
@@ -260,7 +301,7 @@ void receive_file(int new_fd, string filename, string size_string, char* send_bu
 	}
 	// Error in finding free socket
 	else{
-		strcpy(send_buf, "Failed to allocate port for transfer.\n");
+		strcpy(send_buf, "ERROR: Failed to allocate port for transfer.\n");
 	}
 
 }
@@ -329,7 +370,7 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 
 		// Should be in format: pass $PASSWORD
 		if (password != "pass"){
-			strcpy(send_buf, "Wrong format\n");
+			strcpy(send_buf, "ERROR: Wrong format\n");
 			return;
 		}
 		
@@ -345,13 +386,13 @@ void client_login(const int new_fd, const string command, UserMap::iterator& inf
 		}
 		//Wrong password
 		else{
-			strcpy(send_buf, "Wrong password\n");
+			strcpy(send_buf, "ERROR: Wrong password\n");
 			return; 
 		}
 	}
 	// Wrong username
 	else{
-		strcpy(send_buf,"Username not recognized\n");
+		strcpy(send_buf,"ERROR: Username not recognized\n");
 		return; 
 	}
 }
@@ -410,7 +451,7 @@ char* step_chdir(char* path, string home, char* send_buf){
 	if(invalid == 1){
 		chdir(cwd);
 		free(cwd);
-		strcpy(send_buf, "Invalid path\n");
+		strcpy(send_buf, "ERROR: Invalid path\n");
 	}
 	else{
 		free(cwd);
@@ -443,147 +484,227 @@ int run_command(const int new_fd, char* command_cstr, UserMap::iterator& info, c
 
 	// If command is not recognized
 	if(commands.find(com) == commands.end()){
-		strcpy(send_buf, "Unknown command\n");
+		if (strcmp(command_cstr, "\n") == 0){
+			return 0;
+		}
+		strcpy(send_buf, "ERROR: Unknown command\n");
 	}
 	// If command is in map
 	else{
 		// Find command in hashmap
 		CmdMap::iterator cmd_iter = commands.find(com);
-		// Switch for command number
-		switch(cmd_iter->second.second){
 
-			// Login
-			case 0: if (info != users.end()){
-						strcpy(send_buf, "Already logged in!\n");
-					}
-					else{
-						client_login(new_fd, command, info, send_buf);
-						// Returning because login function handles replies
-						return 0;
-					}
-					break;
 
-			// Ping
-			case 1: strcpy(send_buf, "ping output: \n");
-					break;
+		///////////
+		/* Login */
+		///////////
+		if (com == "login"){
 
-			// ls
-			case 2: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						// Execute command string in hash entry
-						execution(cmd_iter->second.first.c_str(), send_buf);
-					}
-					break;
-
-			// cd
-			case 3: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						string path;
-						if(iss >> path){
-							// Try to cd into specified path and fill send_buf with result of operation
-							step_chdir(const_cast<char*>(path.c_str()), info->first, send_buf);
-						}
-						else{
-							// If no path is entered
-							strcpy(send_buf, "Enter path\n");
-						}	
-					}
-					break;
-
-			// get
-			case 4: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						string filename;
-						if (iss >> filename){
-							send_file(new_fd, filename, send_buf, info);
-						}
-						else{
-							strcpy(send_buf, "Please enter filename\n");
-						}
-					}
-					break;
-
-			//put
-			case 5: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						string filename, size;
-						if (iss >> filename && iss >> size){
-							receive_file(new_fd, filename, size, send_buf, info);
-						}
-						else{
-							strcpy(send_buf, "Please enter filename and size\n");
-						}
-					}
-					break;
-
-			// date
-			case 6: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					// Execute command string in hash and fill send_buf with output
-					else{
-						execution(cmd_iter->second.first.c_str(), send_buf);
-					}
-					break;
-
-			// Whoami
-			case 7: if (info != users.end()){
-						string name = info->first + "\n";
-						strcpy(send_buf, const_cast<char *> (name.c_str()));
-					}
-					else{
-						strcpy(send_buf, "You are not logged in.\n");
-					}
-					break;
-
-			// w
-			case 8: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						strcpy(send_buf, w_command());
-					}
-					break;
-
-			// Logout
-			case 9: if(info == users.end()){
-						strcpy(send_buf, "You are not logged in!\n");
-					}
-					else{
-						info->second.second -= 1;
-						info = users.end();
-						strcpy(send_buf, "Logged out\n");
-					}
-					break;
-
-			// Exit
-			case 10: if(info != users.end()){
-						info->second.second = 0;
-						info = users.end();
-					}
-					close(new_fd);
-					// Returning as no need to send reply
-					return -1;
-
-			// others
-			case 11: // Execute command string in hash and fill send_buf with output
-					
-					// First we need to append command with 2>&1 to catch error stream
-					string alias_command = cmd_iter->second.first;
-					alias_command += " 2>&1";
-
-					execution(alias_command.c_str(), send_buf);
-					break;
-		
+			if (info != users.end()){
+				strcpy(send_buf, "ERROR: Already logged in!\n");
+			}
+			else{
+				client_login(new_fd, command, info, send_buf);
+				// Returning because login function handles replies
+				return 0;
+			}
 		}
+
+
+
+		////////
+		/* ls */
+		////////
+		else if (com == "ls"){
+
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				// Execute command string in hash entry
+				execution(cmd_iter->second.first.c_str(), send_buf);
+			}
+		}
+
+
+
+		////////
+		/* cd */
+		////////
+		else if (com == "cd"){
+
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				string path;
+				if(iss >> path){
+					// Try to cd into specified path and fill send_buf with result of operation
+					step_chdir(const_cast<char*>(path.c_str()), info->first, send_buf);
+				}
+				else{
+					// If no path is entered
+					strcpy(send_buf, "ERROR: Enter path\n");
+				}	
+			}
+		}
+
+
+
+		/////////
+		/* get */
+		/////////
+		else if (com == "get"){
+
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				string filename;
+				if (iss >> filename){
+					send_file(new_fd, filename, send_buf, info);
+				}
+				else{
+					strcpy(send_buf, "ERROR: Please enter filename\n");
+				}
+			}
+		}
+
+
+
+		/////////
+		/* put */
+		/////////
+		else if (com == "put"){
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				string filename, size;
+				if (iss >> filename && iss >> size){
+					receive_file(new_fd, filename, size, send_buf, info);
+				}
+				else{
+					strcpy(send_buf, "ERROR: Please enter a valid filename and size\n");
+				}
+			}
+		}
+
+
+
+		//////////
+		/* date */
+		//////////
+		else if (com == "date"){
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			// Execute command string in hash and fill send_buf with output
+			else{
+				execution(cmd_iter->second.first.c_str(), send_buf);
+			}
+		}
+			
+
+
+		////////////
+		/* whoami */
+		////////////
+		else if (com == "whoami"){
+
+			if (info != users.end()){
+				string name = info->first + "\n";
+				strcpy(send_buf, const_cast<char *> (name.c_str()));
+			}
+			else{
+				strcpy(send_buf, "ERROR: You are not logged in.\n");
+			}
+		}
+
+
+
+		///////
+		/* w */
+		///////
+		else if (com == "w"){
+
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				strcpy(send_buf, w_command());
+			}
+		}
+
+
+
+		////////////
+		/* Logout */
+		////////////
+		else if (com == "logout"){
+
+			if(info == users.end()){
+				strcpy(send_buf, "ERROR: You are not logged in!\n");
+			}
+			else{
+				info->second.second -= 1;
+				info = users.end();
+				strcpy(send_buf, "Logged out\n");
+			}
+		}
+
+
+
+		//////////
+		/* Exit */
+		//////////
+		else if (com == "exit"){
+
+			if(info != users.end()){
+				info->second.second -= 1;
+				info = users.end();
+			}
+			close(new_fd);
+			// Returning as no need to send reply
+			return -1;
+		}
+
+
+
+		//////////////////////////////////////////////////
+		/* Alias command with parameter already present */
+		//////////////////////////////////////////////////
+		else if(cmd_iter->second.second != ""){
+
+			string to_exec;
+			to_exec = cmd_iter->second.first + " " + cmd_iter->second.second + " 2>&1";
+			execution(to_exec.c_str(), send_buf);
+		}
+
+
+
+		////////////////////////////////////////////////
+		/* Alias which expects user input as parameter*/
+		////////////////////////////////////////////////
+		// BUG: Has problems with "abc; ls" (Not Code injection though)
+		else if (cmd_iter->second.second == ""){
+
+			string to_exec;
+			// Getting the parameters sent by user into temp
+			string temp;
+			iss >> temp;
+			// Copying the parameters into a buffer for modification
+			char params[MAXLEN];
+			strcpy(params, temp.c_str());
+			// Sanitizing (splitting the parameter on ;)
+			char *save_ptr;
+			char *parameter = strtok_r(params, ";\n", &save_ptr);
+			// Building the command and executing
+			to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
+			execution(to_exec.c_str(), send_buf);
+		}
+		
+		
 	}
 
 	// Success in parsing and executing command
@@ -658,7 +779,22 @@ int main()
 	init();
 	// Fill global variables after parsing conf file
 	parse_conf_file();
-	
+	// Create directory structure for all users
+	if(create_home_dirs() == -1){
+		fprintf(stderr, "ERROR: Error setting up home directories\n");
+		exit(1);
+	}
+
+	// Signal handler to wait on children
+	struct sigaction sa;
+	sa.sa_handler = sigchld_handler; // reap all dead processes
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(1);
+	}
+
 	// Variables needed for socket
 	int sockfd, new_fd; 
 	struct sockaddr_in client_addr;
@@ -671,22 +807,10 @@ int main()
 	// Ready
 	printf("Server: waiting for connections...\n");
 
-	// Signal handler to wait on children
-	struct sigaction sa;
-	sa.sa_handler = sigchld_handler; // reap all dead processes
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("sigaction");
-        exit(1);
-    }
-
-	// So that all clones have their own filesystem
-	//unshare(CLONE_FS);
 
 	// To server multiple clients
 	// BUG: Turning off client ?
-	while(1) {  
+	while(1) {
 		
 		// Accepting connections
 		new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &addr_len);
@@ -695,22 +819,22 @@ int main()
 			continue;
 		}
 
-	
+
 		// Printing client IP address
 		char ip4[INET_ADDRSTRLEN];
 		inet_ntop(AF_INET, &client_addr.sin_addr, ip4, INET_ADDRSTRLEN);
 		printf("Server: got connection from %s\n", ip4);
 
 		char *stack;                    /* Start of stack buffer */
-        char *stackTop;                 /* End of stack buffer */
-        stack = (char*) malloc(STACK_SIZE);
-        if (stack == NULL){
-        	perror("malloc");
-        	continue;
-        }
-        stackTop = stack + STACK_SIZE;  /* Assume stack grows downward */
+		char *stackTop;                 /* End of stack buffer */
+		stack = (char*) malloc(STACK_SIZE);
+		if (stack == NULL){
+			perror("malloc");
+			continue;
+		}
+		stackTop = stack + STACK_SIZE;  /* Assume stack grows downward */
 
-        // Create thread to handle each client
+		// Create thread to handle each client
 		int thread_id;
 		int status;
 		thread_id = clone(handle_client, stackTop, SIGCHLD | CLONE_VM , &new_fd);
