@@ -5,9 +5,11 @@
 #include <sstream>
 #include <unordered_map>
 #include <utility>
-
+#include <fstream>
 #include "include/sploit.h"
-
+#include <algorithm>
+#include <vector>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -26,6 +28,8 @@ using namespace std;
 
 #define MAXLEN 1024 // Maximum length of command accepted
 #define STACK_SIZE (1024 * 1024)    /* Stack size for cloned child */
+
+#define CONFIG_FILE "sploit.conf"
 
 /* Issues
  *
@@ -128,6 +132,99 @@ void parse_conf_file(){
 	// Will have to handle if config file has a long base
 	strcpy(BASE, ".");
 }
+
+int parse_config() {
+	ifstream configFile(CONFIG_FILE);
+	if(configFile.is_open()) {
+		string line;
+		while(getline(configFile, line)) {
+			line.erase(line.begin(), find_if(line.begin(), line.end(), [] (int ch) {return !std::isspace(ch);}));
+			if(line[0] == '#' || line.empty()) {
+				continue;
+			}
+			istringstream iss(line);
+			vector<string> tokens(istream_iterator<string>{iss}, istream_iterator<string>());
+			for(auto token = tokens.begin(); token != tokens.end(); token++) {
+				if((*token).compare("base") == 0) {
+					if(tokens.size() != 2) {
+						return -1;
+					}
+					strncpy(BASE,(*++token).c_str(), 4096);
+					break;
+				} else if((*token).compare("user") == 0) {
+					if(tokens.size() != 3) {
+						return -1;
+					}
+					string user = *++token;
+					string pass = *++token;
+					users.insert(make_pair(user, make_pair(pass, 0)));
+					break;
+				} else if((*token).compare("port") == 0) {
+					if(tokens.size() != 2) {
+						return -1;
+					}	
+					PORT  = stoi(*++token);
+					break;
+				} else if((*token).compare("alias") == 0) {
+					if(tokens.size() < 3) {
+						return -1;
+					}
+					string name = *++token;
+					string cmd = *++token;
+					//string params = accumulate(++token, tokens.end(), string(""));
+					string params;
+					params.clear();
+					for(auto i = ++token; i != tokens.end(); ++i) {
+						params += *i;
+						if(i != tokens.end() - 1) {
+							params += " ";
+						}
+					}
+					cout << "params is " << params << endl;
+					if(tokens.size() == 3) {
+						//params = "NULL";
+					}
+					commands.insert(make_pair(name, make_pair(cmd, params)));
+					break;
+				} else {
+					// invalid command?
+					break;
+				}
+			}
+
+		}
+	
+		cout << "---------CONFIG READ--------------" << endl;
+		cout << "base is " << BASE << endl;
+		cout << "port is " << PORT << endl;
+		cout << "Users are : " << endl;
+		for(auto it = users.begin(); it != users.end(); it++) {
+			cout << (*it).first << "\t" << (*it).second.first << endl;
+		}
+		
+		cout << "Commands are: " << endl;		
+		for(auto it = commands.begin(); it != commands.end(); it++) {
+			cout << (*it).first << "\t";
+			//for(auto jt = (*it).second.first.begin(); jt != (*it).second.first.end(); jt++) {
+			//	cout << (*jt) << " ";
+			//}
+			cout << (*it).second.first << "\t";
+			cout << (*it).second.second;
+			cout << endl;
+		}
+		cout << "------------END-------------------" << endl;
+	
+		configFile.close();
+	} else {
+		return -1;
+	}
+	return 0;
+}
+
+					
+					
+
+
 
 /* Function which will create home directories for all users*/
 int create_home_dirs(){
@@ -779,6 +876,12 @@ int main()
 	init();
 	// Fill global variables after parsing conf file
 	parse_conf_file();
+
+	int result = parse_config();
+	if(result != 0) {
+		fprintf(stderr, "ERROR: Error reading config file \n");
+		exit(1);
+	}
 	// Create directory structure for all users
 	if(create_home_dirs() == -1){
 		fprintf(stderr, "ERROR: Error setting up home directories\n");
