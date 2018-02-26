@@ -806,7 +806,7 @@ int handle_client(void * data) {
         // Try to run the command
         if ((run_command(new_fd, command, info, send_buf)) == -1) {
             // Returns only when connection is closed
-            exit(0);
+            return 0;
         }
 
         // Adding prompt to reply
