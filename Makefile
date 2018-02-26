@@ -24,5 +24,5 @@ $(BINDIR)/server: $(SRCDIR)/server.cpp
 
 .PHONY: dir clean
 clean:
-	rm -f $(BINDIR)/client $(BINDIR)/server
+	rm -rf $(BINDIR)
 
