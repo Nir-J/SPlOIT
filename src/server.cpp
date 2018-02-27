@@ -81,10 +81,20 @@ void execution(const char * command, char * send_buf) {
         size_t len = 0;
         int numbytes = 0;
         int offset = 0;
+        int space = MAXLEN-1-3;
+        int numwrite = 0;
         while ((numbytes = getline( & ln, & len, pf)) != -1) {
             // BUG: Will overflow
-            strncpy(send_buf + offset, ln, MAXLEN - 1 - offset);
-            offset += (numbytes);
+            numwrite = space - offset;
+            if(numbytes <= numwrite){
+                numwrite = numbytes;
+            }
+            else{
+                send_buf[offset] = '\0';
+                break;
+            }
+            strncpy(send_buf + offset, ln, numwrite);
+            offset += (numwrite);
         }
         free(ln);
         pclose(pf);
@@ -401,7 +411,6 @@ char * w_command() {
             list += (iter.first + " ");
     }
     list += "\n";
-
     // Have to cast string so that it can be sent over the buffer.
     return const_cast < char * > (list.c_str());
 
@@ -742,7 +751,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             // Sanitize parameters i fany
             char * save_ptr;
             char * parameter = strtok_r(command_cstr, " \n", & save_ptr);
-            parameter = strtok_r(NULL, ";\n", & save_ptr);
+            parameter = strtok_r(NULL, "|&$;\n", & save_ptr);
 
             // Building the command and executing
             if (parameter == NULL) {
@@ -750,7 +759,6 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             } else {
                 to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
             }
-
             execution(to_exec.c_str(), send_buf);
 
         }
