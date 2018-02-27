@@ -1,4 +1,3 @@
-/*Server which handles login, exit, and certain command execution*/
 
 #include <iostream>
 #include <string>
@@ -29,24 +28,15 @@ using namespace std;
 #define MAXLEN 1024 // Maximum length of command accepted
 #define STACK_SIZE (1024 * 1024)    /* Stack size for cloned child */
 
-#define CONFIG_FILE "sploit.conf"
+#define CONFIG_FILE "../sploit.conf"
 
-/* Issues
- *
- * Need to read from conf file
- * How to stop server
- * Handle: login $username dsjfl, pass $password ksdfj
- * Need to remove common headers
- * ls overflow
- * making newfd malloc has some problems
- * 
-*/
 
 // Has the form User : (pass, login_status)
 typedef unordered_map < string, pair < string, int > > UserMap;
 // Has the form Command: command_id
 typedef unordered_map < string, pair < string, string > > CmdMap;
 
+// To pass arguments to threads
 struct args {
     int sockfd;
     int file;
@@ -66,6 +56,8 @@ void sigchld_handler(int s) {
     int saved_errno = errno;
 
     while (waitpid(-1, NULL, WNOHANG) > 0);
+    s++;
+    s--;
 
     errno = saved_errno;
 }
@@ -74,17 +66,26 @@ void sigchld_handler(int s) {
 void execution(const char * command, char * send_buf) {
 
     FILE * pf = NULL;
-    fprintf(stderr, "%s\n", command);
     // Setup our pipe for reading and execute our command.
     if ((pf = popen(command, "r")) != NULL) {
         char * ln = NULL;
         size_t len = 0;
         int numbytes = 0;
         int offset = 0;
+        int space = MAXLEN-1-3;
+        int numwrite = 0;
         while ((numbytes = getline( & ln, & len, pf)) != -1) {
-            // BUG: Will overflow
-            strncpy(send_buf + offset, ln, MAXLEN - 1 - offset);
-            offset += (numbytes);
+            // Handling overflow
+            numwrite = space - offset;
+            if(numbytes <= numwrite){
+                numwrite = numbytes;
+            }
+            else{
+                send_buf[offset] = '\0';
+                break;
+            }
+            strncpy(send_buf + offset, ln, numwrite);
+            offset += (numwrite);
         }
         free(ln);
         pclose(pf);
@@ -110,26 +111,9 @@ void init() {
     commands.insert(make_pair("exit", make_pair("", "")));
 }
 
-/* Parses conf file and fills in global variables */
-void parse_conf_file() {
-    // Initialize users and commands for now
-
-    // Users
-    users.insert(make_pair("nir", make_pair("123", 0)));
-    users.insert(make_pair("basa", make_pair("456", 0)));
-    users.insert(make_pair("jojo", make_pair("789", 0)));
-
-    // Commands parsed from aliases
-    commands.insert(make_pair("echo", make_pair("echo", ""))); // Same number for all aliases
-
-    // Port number
-    PORT = 3490;
-
-    // Will have to handle if config file has a long base
-    strcpy(BASE, ".");
-}
-
+/* Parse config file and fill global variables */
 int parse_config() {
+
     ifstream configFile(CONFIG_FILE);
     if (configFile.is_open()) {
         string line;
@@ -171,7 +155,6 @@ int parse_config() {
                     }
                     string name = * ++token;
                     string cmd = * ++token;
-                    //string params = accumulate(++token, tokens.end(), string(""));
                     string params;
                     params.clear();
                     for (auto i = ++token; i != tokens.end(); ++i) {
@@ -180,7 +163,6 @@ int parse_config() {
                             params += " ";
                         }
                     }
-                    cout << "params is " << params << endl;
                     if (tokens.size() == 3) {
                         //params = "NULL";
                     }
@@ -193,26 +175,6 @@ int parse_config() {
             }
 
         }
-
-        cout << "---------CONFIG READ--------------" << endl;
-        cout << "base is " << BASE << endl;
-        cout << "port is " << PORT << endl;
-        cout << "Users are : " << endl;
-        for (auto it = users.begin(); it != users.end(); it++) {
-            cout << ( * it).first << "\t" << ( * it).second.first << endl;
-        }
-
-        cout << "Commands are: " << endl;
-        for (auto it = commands.begin(); it != commands.end(); it++) {
-            cout << ( * it).first << "\t";
-            //for(auto jt = (*it).second.first.begin(); jt != (*it).second.first.end(); jt++) {
-            //	cout << (*jt) << " ";
-            //}
-            cout << ( * it).second.first << "\t";
-            cout << ( * it).second.second;
-            cout << endl;
-        }
-        cout << "------------END-------------------" << endl;
 
         configFile.close();
     } else {
@@ -233,7 +195,6 @@ int create_home_dirs() {
         DIR * dir = opendir(name);
         if (dir) {
             /* Directory exists. */
-            fprintf(stderr, "Dir already exists.\n");
             closedir(dir);
         } else if (ENOENT == errno) {
             /* Directory does not exist. */
@@ -298,7 +259,7 @@ void * wait_for_connect(void * data) {
     return NULL;
 }
 
-// Doesn't handle path for now
+/* Creates thread for sending file to client */
 void send_file(string filename, char * send_buf) {
 
     struct stat file_stat;
@@ -321,7 +282,6 @@ void send_file(string filename, char * send_buf) {
             int file = open(filename.c_str(), O_RDONLY);
 
             // Arguments to pass to thread which will handle transfer
-            // Do not pass pointers to local variables
             struct args * argument = (args * ) malloc(sizeof(struct args));
             argument->file = file;
             argument->sockfd = send_socket;
@@ -347,10 +307,9 @@ void send_file(string filename, char * send_buf) {
 
 }
 
-// Doesn't handle path for now
+/* Function to create thread for receiving file */
 void receive_file(string filename, string size_string, char * send_buf) {
 
-    // BUG: atoi
     long size = atoi(size_string.c_str());
 
     // Set up socket with any open port
@@ -390,7 +349,6 @@ void receive_file(string filename, string size_string, char * send_buf) {
 }
 
 /* Sends back a list of logged in users */
-// BUG: Can overflow buffer if there are a large number of users (Can be left as is)
 char * w_command() {
 
     string list = "";
@@ -401,7 +359,6 @@ char * w_command() {
             list += (iter.first + " ");
     }
     list += "\n";
-
     // Have to cast string so that it can be sent over the buffer.
     return const_cast < char * > (list.c_str());
 
@@ -419,7 +376,7 @@ void client_login(const int new_fd,
      * send_buf: Reply buffer which will be filled in with command output
      */
 
-    // For sername password which we receive
+    // For username password which we receive
     string username;
     string password;
 
@@ -485,7 +442,6 @@ string get_cur_dir() {
 
     // Getting absolute path of current directory
     char * cur = getcwd(NULL, 0);
-
     char * temp = NULL;
     char * save_ptr = NULL;
     string curdir;
@@ -569,7 +525,8 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
         if (strcmp(command_cstr, "\n") == 0) {
             return 0;
         }
-        strcpy(send_buf, "ERROR: Unknown command\n");
+        strcpy(send_buf, "Error: Unknown command: ");
+        sprintf(send_buf+strlen(send_buf), command_cstr);
     }
     // If command is in map
     else {
@@ -734,7 +691,6 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
         ////////////////////////////////////////////////
         /* Alias which expects user input as parameter*/
         ////////////////////////////////////////////////
-        // BUG: Has problems with "abc; ls" (Not Code injection though)
         else if (cmd_iter->second.second == "") {
 
             string to_exec;
@@ -742,7 +698,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             // Sanitize parameters i fany
             char * save_ptr;
             char * parameter = strtok_r(command_cstr, " \n", & save_ptr);
-            parameter = strtok_r(NULL, ";\n", & save_ptr);
+            parameter = strtok_r(NULL, "$|&;\n", & save_ptr);
 
             // Building the command and executing
             if (parameter == NULL) {
@@ -750,7 +706,6 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             } else {
                 to_exec = commands.find(com)->second.first + " " + string(parameter) + " 2>&1";
             }
-
             execution(to_exec.c_str(), send_buf);
 
         }
@@ -806,7 +761,7 @@ int handle_client(void * data) {
         // Try to run the command
         if ((run_command(new_fd, command, info, send_buf)) == -1) {
             // Returns only when connection is closed
-            exit(0);
+            return 0;
         }
 
         // Adding prompt to reply
@@ -827,7 +782,6 @@ int main() {
     //init commands
     init();
     // Fill global variables after parsing conf file
-    //parse_conf_file();
 
     int result = parse_config();
     if (result != 0) {
@@ -862,7 +816,6 @@ int main() {
     printf("Server: waiting for connections...\n");
 
     // To server multiple clients
-    // BUG: Turning off client ?
     while (1) {
 
         // Accepting connections
