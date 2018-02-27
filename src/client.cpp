@@ -17,6 +17,7 @@
 #include "../include/sploit.h"
 
 #include <arpa/inet.h>
+#include <vector>
 
 #define MAXLEN 1024 // Max length of command which we send 
 
@@ -29,6 +30,8 @@ char server_ip[33];
  * Need to delete comman headers
  * Need to automate
  */
+
+vector<long> thread_ids;
 
 struct args {
     int port;
@@ -131,6 +134,7 @@ void handle_file_transfer(string filename, string reply, char * data) {
 
         // Calling thread function
         pthread_create( & thread, NULL, receive_file, argument);
+        thread_ids.push_back(thread);
     } else {
 
         // Get port information
@@ -159,6 +163,7 @@ void handle_file_transfer(string filename, string reply, char * data) {
 
         // Calling thread function
         pthread_create( & thread, NULL, send_file, argument);
+        thread_ids.push_back(thread);
     }
 }
 
@@ -385,6 +390,12 @@ int main(int argc, char *argv[])
         fout = fopen(argv[4], "w");
         automatedmode(argv, port, fout);
         fclose(fout);
+    }
+
+    // Wait for any file transfers
+    void * ret = NULL;
+    for(size_t i=0; i < thread_ids.size(); i++){
+        pthread_join(thread_ids[i], &ret);
     }
     
     return 0;
