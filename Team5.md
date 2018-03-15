@@ -182,7 +182,7 @@ free(path);
 ```
 ### Format string
 
-* We have control over command->params
+* We have control over command->params. But the input is checked for any '%' charater and changes control flow based on it.
 ```C
 snprintf(err + strlen(err), DATASIZE, command->params);
 ```
