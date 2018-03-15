@@ -51,6 +51,42 @@ drwxr-xr-x 136 root root  12288 Mar 13 05:09 etc
 drwxr-xr-x   2 root root   4096 Apr 12  2016 home
 ...
 ```
+
+### Null pointer dereference 
+
+* If command returns NULL, find_command will try to referenece a NULL pointer
+```C
+command = parse_command(buf, read_size);
+alias = find_command(command->cmd);
+```
+When command length is too long
+```
+$ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+$ 
+
+$ 
+mc08 73 $
+```
+When parameters are too long
+```
+$ login AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+$ 
+
+$ 
+mc08 74 $
+```
 * Server thread crashed when user sends cd command before logging in.
 
 ```C
@@ -60,6 +96,27 @@ else if(!strcmp(command->cmd, "cd")){
     
     }
   }
+```
+
+### Password Verification
+
+* The binary compare function does not verify if length of strings match. This can be used to bypass password check with wrong password. Ex: Actual password = 1, given password = 123, it will still authorize
+
+```
+$ login n
+username verified
+
+$ pass 123
+Login authorized.
+
+$ logout
+Logged out sucessfully.
+
+$ login n
+username verified
+
+$ pass 1
+Login authorized.
 ```
 
 ### Buffer Oveflow
@@ -75,7 +132,60 @@ $
 $ 
 mc08 75 $ 
 ```
+File name is sanitized using this function which will overflow
+```C
+int rpt_err(char *arg){
+	char check[50];
+	sscanf(arg, "%s", check);
+```
 
+* This also accurs with long filenames. DATASIZE >>> MAX_PARAMS_SIZE
+```C
+char err[MAX_PARAMS_SIZE];
+snprintf(err, 23, "ERROR: No such file-> ");
+snprintf(err + strlen(err), DATASIZE, command->params);
+```
+
+* Linux max path size = 4096 bytes. The buffer which will overflow: 
+```C
+#define BASE_SIZE 100
+char base[BASE_SIZE];
+char *current_pwd = base;
+char tmp_dir[1024];
+strcpy(current_pwd, tmp_dir);
+```
+```
+$ mkdir AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+$ cd AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+$ 
+
+$ 
+
+$ 
+mc08 105 $
+```
+
+
+### Memory Leak
+
+* Doesn't free anything.
+```C
+path = NULL;
+command_tmp = NULL;
+free(command_tmp);
+free(path);
+
+```
+### Format string
+
+* We have control over command->params
+```C
+snprintf(err + strlen(err), DATASIZE, command->params);
+```
 ### Design Bugs
 
 * Passing pointer to local variables
