@@ -48,6 +48,19 @@ else if(!strcmp(command->cmd, "cd")){
   }
 ```
 
+### Buffer Oveflow
+
+* File name has a limited char array size of 50, but this bound is not checked.
+
+```
+$ get AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAA
+
+$ 
+
+$ 
+mc08 75 $ 
+```
 
 ### Design Bugs
 
