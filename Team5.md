@@ -22,6 +22,20 @@ Wed Mar 14 20:22:13 EDT 2018
 
 ```
 
+* Parameters for ping are not filtered. We can use this to redirect output to any file the attacker wants.
+```
+$ ping google.com
+PING google.com (172.217.9.78) 56(84) bytes of data.
+64 bytes from ord38s09-in-f14.1e100.net (172.217.9.78): icmp_seq=1 ttl=53 time=7.00 ms
+
+--- google.com ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 7.001/7.001/7.001/0.000 ms
+
+$ ping google.com > ../fileToModify   # Ex: > server => server file gone.
+
+$
+```
 ### Directory traversal
 
 * Absolute paths are not handled.
@@ -79,3 +93,39 @@ sleep(1);
 
 When the calling function goes out of scope, arguments will be invalid and can have undefined behaviour in the 
 thread function. Better to use malloc.
+
+* All users have the same home directory?
+```
+$ login Acidburn
+username verified
+
+$ pass CrashOverride
+Login authorized.
+
+$ ls
+total 16
+drwxrwxr-x 2 njaganna njaganna 4096 Mar 14 19:49 dir1
+drwxrwxr-x 2 njaganna njaganna 4096 Mar 14 19:49 dir2
+-rw-r----- 1 njaganna njaganna  286 Mar 14 23:26 inp
+-rw-rw-r-- 1 njaganna njaganna    0 Mar 14 19:49 layer0-1
+-rw-rw-r-- 1 njaganna njaganna    0 Mar 14 19:49 layer0-2
+-rw-r----- 1 njaganna njaganna  286 Mar 14 23:29 mod
+
+$ logout
+Logged out sucessfully.
+
+$ login n
+username verified
+
+$ pass 1
+Login authorized.
+
+$ ls
+total 16
+drwxrwxr-x 2 njaganna njaganna 4096 Mar 14 19:49 dir1
+drwxrwxr-x 2 njaganna njaganna 4096 Mar 14 19:49 dir2
+-rw-r----- 1 njaganna njaganna  286 Mar 14 23:26 inp
+-rw-rw-r-- 1 njaganna njaganna    0 Mar 14 19:49 layer0-1
+-rw-rw-r-- 1 njaganna njaganna    0 Mar 14 19:49 layer0-2
+-rw-r----- 1 njaganna njaganna  286 Mar 14 23:29 mod
+```
