@@ -41,7 +41,7 @@ weather gotham";date #"
 Thu Mar 15 20:21:34 EDT 2018
 ```
 
-* After the user is logged in, all commands which do not match any predefined command are passed to the shell. Commands are checked to see if they are valid commands using regex, but argumnets are only checked for special characters.
+* After the user is logged in, all commands which do not match any predefined command are passed to the shell. Commands are checked to see if they are valid commands using regex, but arguments are only checked for special characters.
 ```
 login n
 Enter password
@@ -70,4 +70,17 @@ terminate called after throwing an instance of 'std::out_of_range'
   what():  basic_string::substr: __pos (which is 6) > this->size() (which is 5)
 Aborted (core dumped)
 mc08 55 $
+```
+
+### Buffer Overflow
+
+* The command_buf has a fixed size of 100 bytes. Both input and length are dependent on user input
+```C
+int is_clean_command(const char *input, int length){
+    regex_t re = compile_regex(legal_commands_regex);
+    if (is_forbidden_command(input)
+        || has_special_characters(strncpy(command_buf, input, length))){
+        clear_buf();
+        return 0;
+    }
 ```
