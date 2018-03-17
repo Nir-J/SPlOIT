@@ -41,8 +41,33 @@ weather gotham";date #"
 Thu Mar 15 20:21:34 EDT 2018
 ```
 
-###  Null pointer reference
-
-* login and pass commands do not check if parameters are present or not. This causes the server to crash.
+* After the user is logged in, all commands which do not match any predefined command are passed to the shell. Commands are checked to see if they are valid commands using regex, but argumnets are only checked for special characters.
 ```
+login n
+Enter password
+pass 1
+You've logged in
+login
+login: Cannot possibly work without effective root
+login ;date
+Sat Mar 17 10:44:13 EDT 2018
+
+```
+
+###  Server crash
+
+* login and pass commands do not check if parameters are present or not. This causes the server to crash. As multiple clients are handled using threads, the whole server crashes.
+```C
+if (command == "login"){
+  current_uname = commandLine.substr(6); // Tries to access 6ht position which doesn't exist.
+  
+if (command == "pass"){
+  string pass = commandLine.substr(5); // Similar
+```
+```
+mc08 54 $ ./server 
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  basic_string::substr: __pos (which is 6) > this->size() (which is 5)
+Aborted (core dumped)
+mc08 55 $
 ```
