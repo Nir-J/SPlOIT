@@ -84,3 +84,13 @@ int is_clean_command(const char *input, int length){
         return 0;
     }
 ```
+* If command sent is of max length, the code will try to access an invalid array position.
+```C
+char buf[2048];
+string s = "";
+int c_read = 0;
+while((c_read=read(sock, buf, 2047)) == 2047){
+    buf[2048] = 0;
+    s += buf;
+}
+```
