@@ -62,3 +62,30 @@ Try 'rm --help' for more information.
 $ 
 
 ```
+
+### Design Bugs
+
+Only listing those which I found interesting
+
+* Loginception
+```
+login root
+$ pass root
+Welcome!
+$ whoami
+root
+$ login Acidburn
+$ pass CrashOverride
+Welcome!
+$ whoami
+Acidburn
+$ w
+Acidburn
+root
+$ logout
+Logged out...
+$ whoami
+root
+$ w
+root
+```
