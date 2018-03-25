@@ -29,7 +29,7 @@ drwxrwxr-x 6 njaganna njaganna    4096 Mar 14 19:49 src
 ### Buffer Overflow
 
 * The ping command is constructed using a buffer of size 128. We can overflow this by giving a hostname which exceeds the size.
-```
+```C
 char pingcmd[128];
 sprintf(pingcmd, "ping %s", host.c_str());
 
@@ -43,4 +43,24 @@ Server:
 ping: unknown host first
 Segmentation fault (core dumped)
 mc02 60 $ 
+```
+
+* Any misc command is constructed by using a buffer of size 128. First it changes directory and then executes command. As unix path lengths can easily exceed 128 bytes, we can overflow the buffer by making the path long.
+```C
+char c_cmd[128];
+sprintf(c_cmd, "cd %s && %s",
+        getSession().getCurrentDir().c_str(),
+        _cmd.c_str());
+
+Client:
+cd AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAA
+echo Muhaha
+Muhaha
+
+Server: 
+mc02 60 $ ./server
+Sploit Server Starting...
+Segmentation fault (core dumped)
+mc02 61 $
 ```
