@@ -46,6 +46,8 @@ mc02 60 $
 ```
 
 * Any misc command is constructed by using a buffer of size 128. First it changes directory and then executes command. As unix path lengths can easily exceed 128 bytes, we can overflow the buffer by making the path long.
+
+NOTE: Needs mkdir command in alias.
 ```C
 char c_cmd[128];
 sprintf(c_cmd, "cd %s && %s",
