@@ -66,3 +66,7 @@ Sploit Server Starting...
 Segmentation fault (core dumped)
 mc02 61 $
 ```
+
+### Directory traversal
+
+* There is no check of directory traversal as there are no directories being created.
