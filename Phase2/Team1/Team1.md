@@ -77,6 +77,7 @@ mc02 75 $
 Sploit.conf: 
 alias echo echo %s%s%s%s%s%s%s%s%s%s%s%s%s%s
 ```
+This attack can also be used to inject commands into the sploit.conf file.
 
 ### Design bugs
 
