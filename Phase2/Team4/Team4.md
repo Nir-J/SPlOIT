@@ -67,3 +67,4 @@ mc02 61 $
 ### Directory traversal
 
 * There is no check of directory traversal as there are no directories being created.
+* Hence the cofig file can be modified using the put command. This allows for command injection
