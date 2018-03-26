@@ -61,3 +61,18 @@ mc02 75 $ ./server %s%s%s%s
 Segmentation fault (core dumped)
 mc02 76 $
 ```
+### Command injection
+
+* The alias commands do not take user parameters, so we need to modify the config file directly for this
+```
+Sploit.conf:
+
+alias echo echo hi`date`
+
+Client:
+
+mc02 108 $ ./client 127.0.0.1 12345
+echo
+hiMon Mar 26 19:55:02 EDT 2018
+
+```
