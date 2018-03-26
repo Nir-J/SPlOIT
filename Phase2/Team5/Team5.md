@@ -51,6 +51,7 @@ drwxr-xr-x 136 root root  12288 Mar 13 05:09 etc
 drwxr-xr-x   2 root root   4096 Apr 12  2016 home
 ...
 ```
+* This can be used to overwrite the configuration file and thus allows for command injection.
 
 ### Null pointer dereference 
 
