@@ -23,6 +23,7 @@ drwx------   2 root root  16384 Aug 31  2017 lost+found
 drwxr-xr-x   3 root root   4096 Aug 31  2017 media
 ...
 ```
+* This can be used to overwrite the configuration file and thus allows for command injection when the server restarts.
 
 ### Format string
 
