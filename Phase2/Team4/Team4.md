@@ -30,8 +30,6 @@ drwxrwxr-x 6 njaganna njaganna    4096 Mar 14 19:49 src
 
 * The ping command is constructed using a buffer of size 128. We can overflow this by giving a hostname which exceeds the size.
 
->Input: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-
 ```C
 char pingcmd[128];
 sprintf(pingcmd, "ping %s", host.c_str());
@@ -49,7 +47,6 @@ mc02 60 $
 ```
 
 * Any misc command is constructed by using a buffer of size 128. First it changes directory and then executes command. So if we give a long parameter for the alias command, the server crashes as we overflow the return address.
->Input: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ```C
 char c_cmd[128];
 sprintf(c_cmd, "cd %s && %s",
