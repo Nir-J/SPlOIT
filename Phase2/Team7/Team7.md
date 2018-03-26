@@ -25,6 +25,8 @@ cd /
 /
 
 ```
+* This can be used to overwrite the configuration file and thus allows for command injection.
+
 
 ### Command Injection
 
