@@ -42,6 +42,7 @@ u7
 u90
 u99
 ```
+* This can be used to overwrite the configuration file and thus allows for command injection.
 
 ###   Command injection
 
