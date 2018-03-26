@@ -48,6 +48,32 @@ total 0
 -rw-r----- 1 njaganna njaganna 0 Mar 18 12:00 achiraya chou63 chou63 njaganna njaganna wei253 wu1220
 
 ```
+### Format string
+
+* All the alias commands are run using Popen. Before this, they are all printed to the stderr of the server using fprintf.
+```C
+std::string msg("=== Running subprocess: " + cmd);
+fprintf(stderr, msg.c_str());
+```
+If the alias would have taken user input, this would have been exploitable. As this is not implemented, we can use the put command to overwrite the conf file as directory structure is not implemented. If the server restarts, this new conf file will be read and the exploit will work.
+```
+Server:
+
+ [127.0.0.1] Received line: login n
+ [127.0.0.1] Received line: pass 1
+ [127.0.0.1] Successfully logged in as: n
+ [127.0.0.1] Received line: echo
+Segmentation fault (core dumped)
+
+Client:
+
+[i] Connecting to 127.0.0.1:3490
+login n
+pass 1
+echo
+[!] Disconnected from server
+mc02 75 $
+```
 
 ### Design bugs
 
