@@ -697,7 +697,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             // Sanitize parameters i fany
             char * save_ptr;
             char * parameter = strtok_r(command_cstr, " \n", & save_ptr);
-            parameter = strtok_r(NULL, "$|&;\n", & save_ptr);
+            parameter = strtok_r(NULL, "$|&;<>`\n", & save_ptr);
 
             // Building the command and executing
             if (parameter == NULL) {
