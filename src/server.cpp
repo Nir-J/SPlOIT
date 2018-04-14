@@ -352,11 +352,16 @@ void receive_file(string filename, string size_string, char * send_buf) {
 char * w_command() {
 
     string list = "";
-
     for (auto iter: users) {
 
-        if (iter.second.second != 0)
+        if (iter.second.second != 0){
+            // Check if list length will exceed maximum length on this addition
+            if((list.length()+iter.first.length()+1) > (MAXLEN-5)){
+                break;
+            }
             list += (iter.first + " ");
+        }
+
     }
     list += "\n";
     // Have to cast string so that it can be sent over the buffer.
