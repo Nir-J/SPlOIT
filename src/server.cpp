@@ -525,8 +525,7 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
         if (strcmp(command_cstr, "\n") == 0) {
             return 0;
         }
-        strcpy(send_buf, "Error: Unknown command: ");
-        sprintf(send_buf+strlen(send_buf), command_cstr);
+        strcpy(send_buf, "Error: Unknown command\n");
     }
     // If command is in map
     else {
