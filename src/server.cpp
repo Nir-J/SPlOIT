@@ -569,8 +569,13 @@ int run_command(const int new_fd, char * command_cstr, UserMap::iterator & info,
             } else {
                 string path;
                 if (iss >> path) {
-                    // Try to cd into specified path and fill send_buf with result of operation
-                    step_chdir(const_cast < char * > (path.c_str()), info->first, send_buf);
+                    if(strcmp("/", path.c_str()) == 0){
+                        strcpy(send_buf, "Can't go there sorry.\n");
+                    }
+                    else{
+                        // Try to cd into specified path and fill send_buf with result of operation
+                        step_chdir(const_cast < char * > (path.c_str()), info->first, send_buf);
+                    }
                 } else {
                     // If no path is entered
                     strcpy(send_buf, "ERROR: Enter path\n");
