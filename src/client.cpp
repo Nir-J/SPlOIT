@@ -264,9 +264,7 @@ void automatedmode(char *argv[], int port, FILE *fout)
     int sockfd, numbytes;  
     char buffer[MAXLEN];    
     FILE * fin;
-    char * line = NULL;
-    size_t len = 0;
-    ssize_t read;
+    char * line = (char*) malloc(MAXLEN);
 
     if((fin = fopen(argv[3], "r"))== NULL){
         perror("error opening file");
@@ -288,7 +286,7 @@ void automatedmode(char *argv[], int port, FILE *fout)
     string token;
 
     // Input from in file
-    while ((read = getline(&line, &len, fin)) != -1) {
+    while (fgets(line, MAXLEN-1, fin) != NULL) {
         
         
         // Clearing out buffer
@@ -351,6 +349,7 @@ void automatedmode(char *argv[], int port, FILE *fout)
         }
         
     }
+    free(line);
     // Sending exit to server
     if (send(sockfd, "exit\n", 5, 0) == -1){
         perror("send");
