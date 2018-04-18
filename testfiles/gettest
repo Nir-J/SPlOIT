@@ -1,0 +1,7 @@
+login n
+pass 1
+get test1.txt
+get test2.txt
+get test3.txt 
+logout
+exit
