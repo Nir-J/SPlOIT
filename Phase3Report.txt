@@ -1,0 +1,65 @@
+Patches
+
+1) Command Injection.
+
+Backtick was not sanitized.
+Patch: Sanitize `,>,<
+
+-            parameter = strtok_r(NULL, "$|&;\n", & save_ptr);
++            parameter = strtok_r(NULL, "$|&;<>`\n", & save_ptr);
+
+2) Format string exploit.
+
+Unknown commands were sent back to the client with the error message.
+Patch: Just send back error message without command.
+
+-        strcpy(send_buf, "Error: Unknown command: ");
+-        sprintf(send_buf+strlen(send_buf), command_cstr);
+
++        strcpy(send_buf, "Error: Unknown command\n");
+
+3) Buffer Overflow.
+
+A format string exploit, which invloves sending back command sent by user, would circumvent size check through format width specifiers.
+Patch: Do not send back command. (Remove format string vulnerability
+
+-        strcpy(send_buf, "Error: Unknown command: ");
+-        sprintf(send_buf+strlen(send_buf), command_cstr);
+
++        strcpy(send_buf, "Error: Unknown command\n");
+
+4) Buffer overflow 2.
+
+w command will overflow if combined length of logged in users exceeds buffer size.
+Patch: Only include as many names as possible which can fit in the buffer. Sending the second list of remaining users would require a slight design modification where the client should expect a second list to arrive.
+
+// Original
+for (auto iter: users) {
+     if (iter.second.second != 0){
+         list += (iter.first + " ");
+     }
+}
+
+// Patch
+for (auto iter: users) {
+ 
+         if (iter.second.second != 0){
++            // Check if list length will exceed maximum length on this addition
++            if((list.length()+iter.first.length()+1) > (MAXLEN-5)){
++                break;
++            }
+             list += (iter.first + " ");
++        }
+}
+
+5) Client side Bufferoverflow
+
+The automated version of the client used getline to read commands from the input file. This command was later copied to the buffer which was used to send the command. There was no limit on how much getline would read.
+Patch: Swap getline with fgets which imposes a limit on how much is read from the file.
+
+-    while ((read = getline(&line, &len, fin)) != -1) {
++    while (fgets(line, MAXLEN-1, fin) != NULL) {
+
+6) Our choice
+
+The exploit to inject commands by modifying the PATH environment variable turned out to be non exploitable. Hence, no teams discovered it and doesn't need a patch.
